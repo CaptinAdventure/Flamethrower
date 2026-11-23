@@ -1,0 +1,82 @@
+<section class="card">
+    {% if architect_proposal %}
+        <h2>
+            Proposed plan
+            <span class="card-extra">run #{{ current_run.id }}</span>
+        </h2>
+
+        {% include "tasks/components/plan.html" with plan_text=architect_proposal only %}
+
+        <h3>Actions</h3>
+        <p>Accept approves this plan and advances to Developer; Refine requests changes; Abandon stops this task.</p>
+        <p>Accept starts Developer work automatically when possible.</p>
+        <p>Accept and Abandon take effect immediately.</p>
+
+        <div data-architect-actions>
+            <div class="actions" data-architect-choices{% if workflow_action == "refine_plan" %} hidden{% endif %}>
+                <form method="post" action="{% url 'use_architect_plan' task.id %}" data-inplace-action>
+                    {% csrf_token %}
+                    {{ architect_form }}
+                    <button type="submit">Accept</button>
+                </form>
+                <a class="button secondary" href="?next_action=refine_plan#next-action" data-refine-plan>Refine</a>
+                <form method="post" action="{% url 'abandon_architect_plan' task.id %}" data-inplace-action>
+                    {% csrf_token %}
+                    {{ architect_form }}
+                    <button type="submit" class="secondary">Abandon</button>
+                </form>
+            </div>
+
+            <div data-action-editor{% if workflow_action != "refine_plan" %} hidden{% endif %}>
+                <h3>Refine proposed plan</h3>
+                <p>Saving sends this proposal and your feedback to a new Architect session. The plan remains unapproved.</p>
+                <p>The trusted ACP server may run commands, modify files, or send content to its provider; read-only isolation is not enforced.</p>
+
+                <form method="post" action="{% url 'refine_architect_plan' task.id %}" data-inplace-action>
+                    {% csrf_token %}
+
+                    {{ architect_refinement_form.version }}
+                    {{ architect_refinement_form.stage_version }}
+                    {{ architect_refinement_form.run_id }}
+                    {{ architect_refinement_form.report_hash }}
+                    {{ architect_refinement_form.non_field_errors }}
+
+                    <div class="field">
+                        {{ architect_refinement_form.feedback.label_tag }}
+                        {{ architect_refinement_form.feedback }}
+                        {{ architect_refinement_form.feedback.errors }}
+                    </div>
+
+                    <div class="actions">
+                        <button type="submit">Save</button>
+                        <a class="button secondary" href="{% url 'task_detail' task.id %}#next-action" data-cancel-refinement>Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    {% else %}
+        <h2>Generate or enter a plan</h2>
+        <p>The request is approved. Generate or enter a plan, then review and approve the plan separately.</p>
+        {% if task.plan %}{% include "tasks/detail/approval_context/plan.html" %}{% endif %}
+
+        <div class="actions">
+            {% if not busy and not acp_issue %}
+                <form method="post" action="{% url 'refine_plan' task.id %}">{% csrf_token %}{{ stage_form }}
+                    <button type="submit" class="secondary">Generate plan with Copilot</button>
+                </form>
+            {% else %}
+                <p>{{ acp_issue|default:"No enabled ACP is currently available." }}</p>
+            {% endif %}
+            {% if task.plan %}
+                <form method="post" action="{% url 'approve_plan' task.id %}">{% csrf_token %}{{ stage_form }}
+                    <button type="submit">Approve plan</button>
+                </form>
+            {% else %}<a class="button secondary" href="{% url 'task_edit' task.id %}">Enter a plan</a>{% endif %}
+        </div>
+
+        {% if current_run.stage == "architect" and current_run.status == "completed" %}
+            <p>The Architect returned no valid final plan. Inspect the run for questions or errors before trying again.</p>
+        {% endif %}
+    {% endif %}
+</section>

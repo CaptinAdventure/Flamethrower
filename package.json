@@ -1,0 +1,14 @@
+{
+  "name": "flamethrower-diagrams",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild tasks/frontend/mermaid-renderer.js --bundle --minify --format=iife --legal-comments=inline --outfile=tasks/static/tasks/mermaid-renderer.js && cp node_modules/mermaid/LICENSE tasks/static/tasks/mermaid-LICENSE.txt"
+  },
+  "dependencies": {
+    "mermaid": "12.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

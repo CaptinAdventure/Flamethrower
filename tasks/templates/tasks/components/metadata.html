@@ -1,0 +1,21 @@
+<section class="card" id="task-metadata">
+    <h2>Task details</h2>
+    <p>ID: #{{ task.id }} · Priority in {{ task.get_stage_display }}: {{ task.priority }}</p>
+    <form method="post" action="{% url 'set_task_metadata' task.id %}">
+        {% csrf_token %}
+
+        {{ metadata_version_form }}
+        {{ metadata_form.non_field_errors }}
+
+        {% for field in metadata_form %}
+            <div class="field">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>
+        {% endfor %}
+
+        <p class="muted">Set an agent-created task to Ready to accept it. Blocked means an external constraint prevents progress; gate results are recorded
+            separately.</p>
+
+        {% if run_active %}<p class="muted">Finish or cancel the active run before blocking or abandoning this task.</p>{% endif %}
+
+        <button type="submit">Save details</button>
+    </form>
+</section>

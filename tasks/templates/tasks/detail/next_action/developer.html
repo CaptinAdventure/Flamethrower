@@ -1,0 +1,24 @@
+{% if task.rework_note %}
+    <p><strong>Rework context:</strong></p>
+    <div class="content">{{ task.rework_note }}</div>
+{% endif %}
+
+{% if not manual_workflow_actions_available %}
+    <p>The workflow will advance to Testing when the developer run completes.</p>
+{% elif developer_ready %}
+    <p>The developer turn ended. Inspect the work and approve or refuse it; testing and independent review are NOT_YET_VERIFIED.</p>
+    {% include "tasks/detail/approval_context/developer.html" %}
+    {% include "tasks/detail/actions/developer.html" %}
+{% else %}
+    <p>Request and plan approved. Start the developer when ready.</p>
+{% endif %}
+
+{% if manual_workflow_actions_available %}
+    {% if not developer_ready %}
+        {% if workflow_action == "run" %}
+            {% include "tasks/detail/actions/run.html" %}
+        {% elif not busy and not acp_issue %}
+            <a class="button secondary" href="?next_action=run#next-action">Run {{ task.get_stage_display }} with Copilot</a>
+        {% else %}<p>{{ acp_issue }}</p>{% endif %}
+    {% endif %}
+{% endif %}

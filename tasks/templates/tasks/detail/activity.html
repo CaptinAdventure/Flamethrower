@@ -1,0 +1,96 @@
+{% load markdown_rendering tz %}
+<section class="card run-{{ run.status }}" id="run-activity">
+    <h2>
+        {{ run.get_stage_display }} Copilot run #{{ run.id }}
+        <span class="card-extra">{{ run.get_status_display }}</span>
+    </h2>
+
+    {% if run.error %}<p role="alert">{{ run.error }}</p>{% endif %}
+    {% if run.acp_endpoint %}<p>ACP endpoint: <a href="{% url 'acp_list' %}">{{ run.acp_endpoint.name }} ({{ run.acp_endpoint.address }})</a></p>{% endif %}
+    {% if run.session_id %}<p class="muted">Session: {{ run.session_id }}</p>{% endif %}
+
+    <h3>ACP-reported usage</h3>
+    <p>Reported cost: {% if usage and usage.cost_amount != None and usage.cost_currency %}{{ usage_cost }} {{ usage.cost_currency }}{% else %}Not reported{% endif %}</p>
+    <p>Context usage:
+        {% if usage and usage.context_used != None %}{{ usage.context_used }}{% else %}Not reported{% endif %}
+        / {% if usage and usage.context_size != None %}{{ usage.context_size }}{% else %}Not reported{% endif %}
+    </p>
+    <p>Token usage:
+        {% if usage and usage.total_tokens != None %}{{ usage.total_tokens }} total{% else %}Not reported{% endif %};
+        {% if usage and usage.input_tokens != None %}{{ usage.input_tokens }} input{% else %}Not reported{% endif %};
+        {% if usage and usage.output_tokens != None %}{{ usage.output_tokens }} output{% else %}Not reported{% endif %};
+        {% if usage and usage.thought_tokens != None %}{{ usage.thought_tokens }} thought{% else %}Not reported{% endif %};
+        {% if usage and usage.cached_read_tokens != None %}{{ usage.cached_read_tokens }} cached read{% else %}Not reported{% endif %};
+        {% if usage and usage.cached_write_tokens != None %}{{ usage.cached_write_tokens }} cached write{% else %}Not reported{% endif %}
+    </p>
+
+    {% if run.status == "completed" %}<p>Agent turn ended; its outcome has not been automatically verified.</p>{% endif %}
+    {% if run.deferred_tasks_warning %}
+        <p role="alert">No deferred tasks were created: {{ run.deferred_tasks_warning }} Inspect the agent's final response.</p>
+    {% endif %}
+
+    {% if deferred_tasks %}
+        <h3>Agent-created draft tasks</h3>
+        <div class="summary-task-list-scroll"><table class="summary-task-list" aria-label="Agent-created draft tasks">{% include "tasks/components/task_row_header.html" %}<tbody>
+            {% for item in deferred_tasks %}{% include "tasks/components/task_row.html" with task=item.task only %}{% endfor %}
+        </tbody></table></div>
+        <p class="muted">These drafts require human review and approval before execution.</p>
+    {% endif %}
+
+    <details>
+        <summary>Inputs used for this run</summary>
+
+        <h3>Request</h3>
+        <div class="content">{{ run.request_snapshot }}</div>
+
+        <h3>Plan</h3>
+        {% include "tasks/components/plan.html" with plan_text=run.plan_snapshot only %}
+
+        {% if run.context_snapshot %}
+            <h3>Recorded context</h3>
+            <div class="content">{{ run.context_snapshot }}</div>
+        {% endif %}
+    </details>
+</section>
+
+{% for event in events %}
+    <section
+            class="card event-{{ event.kind }} {% if event.summary %}tool-event permission-card permission-{{ event.summary.category_class }}{% endif %}{% if event.automatic %} automatic {% endif %}">
+        {% if event.kind == "message" %}
+            <h2>
+                Message
+                <span class="card-extra">Recorded <time datetime="{{ event.created_at|utc|date:'c' }}">{{ event.created_at|utc|date:"Y-m-d H:i:s" }} UTC</time></span>
+            </h2>
+            <div class="markdown">{{ event.content|render_markdown }}</div>
+        {% elif event.summary %}
+            {% include "tasks/components/tool_call.html" with tool_summary=event.summary tool_details=event.content only %}
+            {% if event.kind == "permission decision" %}
+                <p>
+                    <strong>{% if event.automatic %}Automatic permission decision{% else %}Permission decision{% endif %}:</strong>
+                    {{ event.decision|default:"Not specified" }}
+                </p>
+            {% endif %}
+
+        {% elif event.unformatted %}
+            <h2>
+                Unable to format {{ event.heading|lower }}
+                <span class="card-extra">Recorded <time datetime="{{ event.created_at|utc|date:'c' }}">{{ event.created_at|utc|date:"Y-m-d H:i:s" }} UTC</time></span>
+            </h2>
+            <details>
+                <pre class="content">{{ event.content }}</pre>
+            </details>
+        {% else %}
+            <h2>
+                {{ event.heading }}
+                <span class="card-extra">Recorded <time datetime="{{ event.created_at|utc|date:'c' }}">{{ event.created_at|utc|date:"Y-m-d H:i:s" }} UTC</time></span>
+            </h2>
+            <details>
+                <pre class="content">{{ event.content }}</pre>
+            </details>
+        {% endif %}
+    </section>
+{% empty %}
+    <section class="card">
+        <p>No activity recorded yet.</p>
+    </section>
+{% endfor %}

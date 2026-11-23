@@ -1,0 +1,18 @@
+<div class="severity-picker" data-severity-picker data-severity-current="{{ widget.value.0|default_if_none:'' }}">
+  <div data-severity-native>{% include "django/forms/widgets/select.html" %}</div>
+  <button type="button" class="severity-toggle" data-severity-toggle hidden role="combobox"
+          aria-haspopup="listbox" aria-expanded="false" aria-controls="{{ widget.attrs.id }}_options">
+    <span data-severity-value>{% include "tasks/components/severity.html" with severity=widget.value.0 show_label=True only %}</span>
+    <svg class="severity-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"></path></svg>
+  </button>
+  <div class="severity-options" data-severity-options id="{{ widget.attrs.id }}_options" role="listbox" aria-label="Severity" hidden>
+    {% for group_name, group_options, group_index in widget.optgroups %}
+      {% for option in group_options %}
+        <button type="button" role="option" aria-selected="{{ option.selected|yesno:'true,false' }}" data-severity-choice="{{ option.value|stringformat:'s' }}">
+          {% include "tasks/components/severity.html" with severity=option.value show_label=True only %}
+        </button>
+      {% endfor %}
+    {% endfor %}
+  </div>
+  <p class="errorlist" data-severity-error role="alert" hidden></p>
+</div>

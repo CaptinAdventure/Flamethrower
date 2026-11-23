@@ -1,0 +1,5 @@
+.severity { display: inline-flex; align-items: center; gap: .35rem; vertical-align: middle; }
+.severity-icon { flex: none; width: 1rem; height: 1rem; }
+.severity-blocker .severity-icon, .severity-critical .severity-icon, .severity-major .severity-icon { color: var(--error, #ef8379); }
+.severity-minor .severity-icon { color: var(--link, #6ba5e7); }
+.severity-trivial .severity-icon { color: var(--text-subtle, #929292); }

@@ -1,0 +1,29 @@
+{% extends "tasks/base.html" %}
+{% block title %}{% if creating %}New change{% else %}Edit task{% endif %} · Flamethrower{% endblock %}
+{% block content %}
+    <p><a href="{% if creating %}{% url 'task_list' %}{% else %}{% url 'task_detail' task.id %}{% endif %}">← Back</a></p>
+    <section class="card">
+        <h1>{% if creating %}New change{% else %}Edit task{% endif %}</h1>
+        {% if run_active %}
+            <p>Request and plan cannot be edited while the agent is running.</p>
+        {% else %}
+            <p>Describe the request and, if ready, enter a plan.</p>
+            {% if generated_title %}<p>Review the locally generated title before saving.</p>{% endif %}
+            {% if title_notice %}<p role="status">{{ title_notice }}</p>{% endif %}
+            {% if title_generation_error %}<p class="errorlist" role="alert">{{ title_generation_error }}</p>{% endif %}
+            {% if not creating %}
+                <p>Changing the request requires renewed request approval; changing the plan requires renewed plan approval. Task details are saved separately below.</p>
+            {% endif %}
+            <form method="post"{% if creating %} action="{% url 'task_create' %}"{% endif %}>
+                {% csrf_token %}
+                {{ form.non_field_errors }}
+                {% if version_form %}{{ version_form }}{% endif %}
+                {% for field in form %}
+                    <div class="field">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>
+                {% endfor %}
+                <button type="submit">Save</button>
+            </form>
+        {% endif %}
+    </section>
+    {% if not creating %}{% include "tasks/components/metadata.html" %}{% endif %}
+{% endblock %}

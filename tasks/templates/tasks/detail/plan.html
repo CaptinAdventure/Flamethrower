@@ -1,0 +1,8 @@
+<section class="card">
+    <h2>Plan</h2>
+    {% if task.plan %}
+        {% include "tasks/components/plan.html" with plan_text=task.plan only %}
+    {% else %}
+        <p>No plan entered.</p>
+    {% endif %}
+</section>

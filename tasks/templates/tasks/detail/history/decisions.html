@@ -1,0 +1,7 @@
+    <section class="card">
+      <h2>Decision history</h2>
+      {% for approval in approvals %}
+        <details><summary>{{ approval.get_kind_display }} · {{ approval.created_at|date:"Y-m-d H:i:s" }} UTC</summary><div class="content">{{ approval.content }}</div></details>
+      {% empty %}<p>No decisions recorded.</p>{% endfor %}
+      <p class="muted">Past decisions remain here when a change requires renewed approval.</p>
+    </section>

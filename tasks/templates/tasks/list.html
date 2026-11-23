@@ -1,0 +1,88 @@
+{% extends "tasks/base.html" %}
+{% load static %}
+{% block content %}
+    <div class="heading">
+        <div>
+            <h1>Tasks</h1>
+            <p class="muted">Project: <code>{{ project_path }}</code></p></div>
+    </div>
+
+    {% for message in messages %}<p role="status">{{ message }}</p>{% endfor %}
+    <section class="card quick-task" aria-labelledby="quick-task-heading">
+        <h2 id="quick-task-heading">Quick task</h2>
+        <form method="post" action="{% url 'quick_task' %}" id="quick-task-form">
+            {% csrf_token %}
+            <label class="sr-only" for="{{ quick_form.request.id_for_label }}">Quick task</label>
+            <div class="quick-task-controls">
+                {{ quick_form.request }}
+                <button type="submit" name="action" value="create" hidden>Create task</button>
+                <button type="submit" name="action" value="edit" aria-label="Review task details">→</button>
+            </div>
+            <p class="muted">Press Enter to create, or use the arrow to review first.</p>
+            {{ quick_form.request.errors }}
+            <p id="quick-task-status" class="muted" role="status"></p>
+        </form>
+    </section>
+
+    <p id="live-status" role="status" class="muted"></p>
+
+    {% if search_query %}<p class="muted">Clear the search to reorder tasks. <a href="{% url 'task_list' %}">Clear search</a></p>{% else %}
+        <p class="muted">Drag tasks within a lane or use the arrow buttons to change priority. Lower numbers are higher priority.</p>{% endif %}
+    <div class="board" id="task-board" aria-label="Task workflow">
+        {% for lane in lanes %}
+            <section class="lane" data-stage="{{ lane.key }}">
+                <h2>{{ lane.name }} <span class="lane-count">{{ lane.tasks|length }}</span></h2>
+                {% for item in lane.tasks %}
+                    <div class="task-card{% if item.attention %} task-card-attention{% endif %}" data-task-id="{{ item.task.id }}"{% if not search_query %}
+                         draggable="true" data-reorder-url="{% url 'reorder_task' item.task.id %}" data-order-token="{{ lane.order_token }}"{% endif %}>
+                        <a href="{% url 'task_detail' item.task.id %}">{% include "tasks/components/work_type.html" with work_type=item.task.work_type only %} #{{ item.task.id }} {{ item.task.title }}</a>
+                        <span class="task-status">{% include "tasks/components/severity.html" with severity=item.task.severity only %} {{ item.task.get_status_display }}</span>
+
+                        {% if item.run_status %}<span class="task-status">Run: {{ item.run_status }}</span>{% endif %}
+                        {% if item.attention %}<span class="attention-label">Attention: {{ item.attention }}</span>{% endif %}
+
+                        {% if not search_query %}
+                            <form method="post" action="{% url 'reorder_task' item.task.id %}" class="priority-actions">
+                                {% csrf_token %}<input type="hidden" name="order_token" value="{{ lane.order_token }}">
+                                <button type="submit" name="direction" value="up" aria-label="Move task #{{ item.task.id }} up"{% if forloop.first %} disabled{% endif %}>
+                                    ↑
+                                </button>
+                                <button type="submit" name="direction" value="down" aria-label="Move task #{{ item.task.id }} down"{% if forloop.last %}
+                                        disabled{% endif %}>↓
+                                </button>
+                            </form>
+                        {% endif %}
+                    </div>
+                {% empty %}
+                    <p class="muted">{% if search_query %}No matching tasks{% else %}No tasks{% endif %}</p>
+                {% endfor %}
+            </section>
+        {% endfor %}
+    </div>
+
+    <section class="card finished-tasks" id="finished-tasks" aria-labelledby="finished-tasks-heading">
+        <h2 id="finished-tasks-heading">Finished tasks <span class="lane-count">{{ finished_tasks|length }}</span></h2>
+        {% if finished_tasks %}
+            <div class="summary-task-list-scroll"><table class="summary-task-list" aria-label="Finished tasks">{% include "tasks/components/task_row_header.html" %}<tbody>
+                {% for item in finished_tasks %}{% include "tasks/components/task_row.html" with task=item.task %}{% endfor %}
+            </tbody></table></div>
+        {% else %}
+            <p class="muted">{% if search_query %}No matching finished tasks{% else %}No finished tasks{% endif %}</p>
+        {% endif %}
+    </section>
+
+    <section class="card abandoned-tasks" id="abandoned-tasks" aria-labelledby="abandoned-tasks-heading">
+        <h2 id="abandoned-tasks-heading">Abandoned tasks <span class="lane-count">{{ abandoned_tasks|length }}</span></h2>
+        {% if abandoned_tasks %}
+            <div class="summary-task-list-scroll"><table class="summary-task-list" aria-label="Abandoned tasks">{% include "tasks/components/task_row_header.html" %}<tbody>
+                {% for item in abandoned_tasks %}{% include "tasks/components/task_row.html" with task=item.task %}{% endfor %}
+            </tbody></table></div>
+        {% else %}
+            <p class="muted">{% if search_query %}No matching abandoned tasks{% else %}No abandoned tasks{% endif %}</p>
+        {% endif %}
+    </section>
+
+    <script src="{% static 'tasks/task-board.js' %}" defer></script>
+    <script src="{% static 'tasks/quick-entry.js' %}" defer></script>
+    <script src="{% static 'tasks/live.js' %}" defer></script>
+{% endblock %}

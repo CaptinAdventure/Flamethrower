@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flamethrower"
+version = "0.1.0"
+description = "Local task planning for software changes"
+requires-python = ">=3.11"
+dependencies = [
+    "Django>=5.2,<5.3",
+    "Pillow>=11,<13",
+    "agent-client-protocol>=0.12.1,<1",
+    "jsonschema>=4.20,<5",
+    "markdown-it-py>=3,<5",
+    "portalocker>=3,<4",
+    "sentence-transformers>=3.4,<6",
+    "torch>=2.2",
+    "transformers>=4.41,<6",
+    "mcp>=1.12,<2",
+    "psutil>=5.9,<8",
+]
+
+[project.scripts]
+flamethrower = "flamethrower.launcher:main"
+flamethrower-mcp = "flamethrower.mcp_stdio:main"
+
+[tool.setuptools.packages.find]
+include = ["flamethrower*", "tasks*"]
+
+[tool.setuptools.package-data]
+tasks = ["templates/tasks/*.html", "templates/tasks/**/*.html", "static/tasks/*.css", "static/tasks/*.js", "static/tasks/*LICENSE.txt"]

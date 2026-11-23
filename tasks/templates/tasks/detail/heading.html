@@ -1,0 +1,46 @@
+<p><a href="{% url 'task_list' %}" class="hide-popover">← All tasks</a></p>
+
+<div class="heading" id="task-heading">
+    <div>
+        <div class="task-title-row">
+            <h1 class="task-title-heading">
+                {% if inline_title_edit %}
+                    <button type="button" class="task-title-display" data-title-display aria-label="Edit task title">{{ task.title }}</button>
+                {% else %}
+                    {{ task.title }}
+                {% endif %}
+            </h1>
+            {% if inline_title_edit %}
+                <form class="task-title-editor" data-title-editor action="{% url 'update_task_title' task.id %}"
+                      data-title-suffix=" · Flamethrower" hidden>
+                    {% csrf_token %}
+                    <label class="sr-only" for="task-title-input">Task title</label>
+                    <input id="task-title-input" name="title" type="text" maxlength="200" required
+                           value="{{ task.title }}" data-title-input>
+                    <input type="hidden" name="version" value="{{ task.version }}" data-title-version>
+                    <input type="hidden" name="stage_version" value="{{ task.stage_version }}" data-title-stage-version>
+                    <div class="task-title-editor-actions">
+                        <button type="submit" class="secondary" data-title-save aria-label="Save title" title="Save title"><span aria-hidden="true">✓</span></button>
+                        <button type="button" class="secondary" data-title-cancel aria-label="Cancel title edit" title="Cancel title edit"><span aria-hidden="true">×</span></button>
+                    </div>
+                </form>
+            {% endif %}
+        </div>
+        {% if inline_title_edit %}<p class="task-title-status muted" role="status" data-title-status aria-live="polite"></p>{% endif %}
+        <span class="badge">{% include "tasks/components/work_type.html" with work_type=task.work_type show_title=True only %}</span>
+        <span class="badge">{{ task.get_stage_display }}</span>
+        <span class="badge">{{ task.get_status_display }}</span>
+        <span class="badge">Priority {{ task.priority }}</span>
+    </div>
+
+    <div class="actions heading-actions hide-popover">
+        <a class="button secondary" href="{% url 'task_links' task.id %}" data-popover data-popover-refresh="task-links">Link task</a>
+        <a class="button secondary" href="{% url 'task_edit' task.id %}">Edit</a>
+        {% if current_run_active and not current_run.cancel_requested %}
+            <form method="post" action="{% url 'cancel_run' current_run.id %}">
+                {% csrf_token %}
+                <button type="submit" class="button danger">Cancel run</button>
+            </form>
+        {% endif %}
+    </div>
+</div>

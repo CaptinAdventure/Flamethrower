@@ -1,0 +1,32 @@
+{% if workflow_action == "approve" or workflow_action == "refuse" %}
+    <div data-action-editor>
+        {% if workflow_action == "approve" %}
+            <h3>Approve Developer work</h3>
+            <p>Saving advances to Testing. Testing and independent review remain NOT_YET_VERIFIED.</p>
+            <p>Saving starts Testing automatically when possible.</p>
+            <form method="post" action="{% url 'advance_stage' task.id %}">
+                {% csrf_token %}{{ stage_form }}
+                <div class="actions">
+                    <button type="submit">Save</button>
+                    <a class="button secondary" href="{% url 'task_detail' task.id %}#next-action">Cancel</a>
+                </div>
+            </form>
+        {% else %}
+            <h3>Refuse Developer work</h3>
+            <p>Saving starts another Developer run with this feedback.</p>
+            <form method="post" action="{% url 'refuse_developer' task.id %}">
+                {% csrf_token %}{{ rework_form.version }}{{ rework_form.stage_version }}{{ rework_form.non_field_errors }}
+                <div class="field">{{ rework_form.reason.label_tag }}{{ rework_form.reason }}{{ rework_form.reason.errors }}</div>
+                <div class="actions">
+                    <button type="submit">Save</button>
+                    <a class="button secondary" href="{% url 'task_detail' task.id %}#next-action">Cancel</a>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+{% else %}
+    <div class="actions">
+        <a class="button" href="?next_action=approve#next-action">Approve</a>
+        <a class="button secondary" href="?next_action=refuse#next-action">Refuse</a>
+    </div>
+{% endif %}

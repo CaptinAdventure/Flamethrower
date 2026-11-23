@@ -1,0 +1,20 @@
+<section class="card" id="work-type-suggestion" data-active="{% if work_type_suggestion.status == 'pending' or work_type_suggestion.status == 'indexing' %}true{% else %}false{% endif %}">
+    <h2>Work type suggestion</h2>
+    {% if work_type_suggestion.status == "ready" %}
+        <p>Suggested: <strong>{{ work_type_suggestion.work_type.title }}</strong></p>
+        <p class="muted">Based on the task text and work-type descriptions using the local similarity model. Review the suggestion; it does not change the work type.</p>
+        {% if work_type_suggestion.work_type.pk != task.work_type_id %}
+            <p><a href="{% url 'task_edit' task.pk %}#task-metadata">Change work type</a></p>
+        {% endif %}
+    {% elif work_type_suggestion.status == "failed" %}
+        <p role="alert">Work type suggestion failed: {{ work_type_suggestion.error }}</p>
+        <form method="post" action="{% url 'retry_work_type_suggestion' task.pk %}">
+            {% csrf_token %}
+            <button type="submit">Retry suggestion</button>
+        </form>
+    {% elif work_type_suggestion.status == "index_failed" %}
+        <p>Unavailable until task indexing succeeds. Retry indexing under Similar tasks.</p>
+    {% else %}
+        <p>Preparing a local work type suggestion.</p>
+    {% endif %}
+</section>

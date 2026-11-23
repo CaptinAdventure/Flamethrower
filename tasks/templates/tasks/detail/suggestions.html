@@ -1,0 +1,24 @@
+<section class="card" id="task-suggestions" data-active="{{ indexing_active|yesno:'true,false' }}">
+    <h2>
+        Similar tasks
+        <span class="card-extra">Indexing: {{ task.get_relates_indexing_display }}.</span>
+    </h2>
+    {% if task.indexing_error %}
+        <p role="alert">Indexing failed: {{ task.indexing_error }}</p>
+        <form method="post" action="{% url 'retry_indexing' task.id %}">
+            {% csrf_token %}
+            <button type="submit">Retry indexing</button>
+        </form>
+    {% endif %}
+    <p class="muted">Suggestions compare titles and requests locally; they are not confirmed relationships.</p>
+    {% if suggestions %}
+        <div class="summary-task-list-scroll"><table class="summary-task-list" aria-label="Similar tasks">{% include "tasks/components/task_row_header.html" with show_similarity=True only %}<tbody>
+            {% for item in suggestions %}
+                {% include "tasks/components/task_row.html" with task=item.task actions=item.actions show_similarity=True similarity=item.score csrf_token=csrf_token only %}
+            {% endfor %}
+        </tbody></table></div>
+    {% else %}
+        <p>No suggestions currently available.</p>
+    {% endif %}
+    <p><a href="{% url 'admin:tasks_similaritysettings_changelist' %}">Similarity settings (admin)</a></p>
+</section>

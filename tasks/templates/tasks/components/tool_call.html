@@ -1,0 +1,50 @@
+
+{% if permission_prompt %}
+    <h2>{{ tool_summary.heading }}</h2>
+    {% if tool_summary.title %}
+        <p><strong>Agent description:</strong> {{ tool_summary.title }}</p>
+    {% endif %}
+{% else %}
+    <h2>{{ tool_summary.title|default:"Tool activity" }}</h2>
+    {% if tool_summary.status %}
+        <p><strong>Status:</strong> {{ tool_summary.status }}</p>
+    {% endif %}
+{% endif %}
+
+<p class="permission-category">Agent reports: {{ tool_summary.category }}</p>
+{% if tool_summary.mcp_tool %}
+    <p><strong>Reported MCP server:</strong> <code>{{ tool_summary.mcp_tool.server }}</code> · <strong>Tool:</strong> <code>{{ tool_summary.mcp_tool.tool }}</code></p>
+{% endif %}
+
+{% if tool_summary.command %}
+    <p><strong>Command:</strong></p>
+    <pre class="content permission-details"><code>{{ tool_summary.command }}</code></pre>
+{% endif %}
+
+{% if tool_summary.paths %}
+    <p><strong>Paths reported by the agent:</strong></p>
+    <ul>
+        {% for path in tool_summary.paths %}
+            <li><code>{{ path }}</code></li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+{% if tool_summary.input_text %}
+    <p><strong>Input:</strong></p>
+    <pre class="content permission-details">{{ tool_summary.input_text }}</pre>
+{% endif %}
+
+{% for output in tool_summary.output %}
+    <p><strong>Output:</strong></p>
+    <pre class="content permission-details">{{ output }}</pre>
+{% endfor %}
+
+{% if permission_prompt and not tool_summary.command and not tool_summary.paths and not tool_summary.input_text %}
+    <p>The agent did not provide a command or path in the summary. Check the full details before deciding.</p>
+{% endif %}
+
+<details class="permission-raw">
+    <summary>Full agent-provided details</summary>
+    <pre class="content permission-details">{{ tool_details }}</pre>
+</details>

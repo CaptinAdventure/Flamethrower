@@ -1,0 +1,20 @@
+{% load markdown_rendering %}
+<div class="approval-context">
+    <h3>Work to approve · Developer run #{{ current_run.id }}</h3>
+    <p><strong>{{ task.title }}</strong> · version {{ current_run.task_version }} · work cycle {{ current_run.work_cycle }}</p>
+    <p>You are deciding whether this Developer run's work is ready for Testing, not certifying that testing or independent review passed.</p>
+    <h4>Agent-reported work (not independently verified)</h4>
+    {% if developer_report %}
+        <div class="markdown">{{ developer_report|render_markdown }}</div>
+    {% else %}
+        <p>No final Developer report was recorded. Inspect the actual project changes before approving.</p>
+    {% endif %}
+    <details>
+        <summary>Approved request and plan used for this work</summary>
+        <h4>Request</h4>
+        <div class="content">{{ current_run.request_snapshot }}</div>
+        <h4>Plan</h4>{% include "tasks/components/plan.html" with plan_text=current_run.plan_snapshot only %}
+        {% if current_run.context_snapshot %}<h4>Recorded context</h4>
+            <div class="content">{{ current_run.context_snapshot }}</div>{% endif %}
+    </details>
+</div>

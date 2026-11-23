@@ -1,0 +1,99 @@
+{% if current_run.cancel_requested %}
+    <p>Cancellation requested; the agent may still be working.</p>
+{% elif question %}
+    <section class="permission-card">
+        <h2>Agent needs your answer</h2>
+        <p>{{ question.message|linebreaksbr }}</p>
+        <p>Answering does not approve changes to the task's request, plan, or tool permissions.</p>
+        <form method="post" action="{% url 'answer_agent_question' question.id %}">
+            {% csrf_token %}
+            {{ question_form.non_field_errors }}
+            {% for field in question_form %}
+                <div class="field">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.help_text %}<p class="muted">{{ field.help_text }}</p>{% endif %}
+                    {{ field.errors }}
+                </div>
+            {% endfor %}
+            <button type="submit">Send answer</button>
+        </form>
+    </section>
+{% elif permission %}
+    <section class="permission-card permission-{{ permission_summary.category_class }}">
+        <div class="permission-layout">
+            <div class="permission-content">
+                {% include "tasks/components/tool_call.html" with tool_summary=permission_summary tool_details=permission_details permission_prompt=True only %}
+
+                <p>Agent-provided details may be incomplete. Permissions do not sandbox the agent.</p>
+                {% if permission.tool_call.originToolCall.kind == "execute" %}
+                    <p>This request originated from a shell command. Allowing it permits the entire command; directory rules apply only to future read/search operations.</p>
+                    {% if permission.tool_call.originToolCall.rawInput.command %}<p>Command: <code>{{ permission.tool_call.originToolCall.rawInput.command }}</code></p>{% endif %}
+                {% endif %}
+            </div>
+            <aside class="permission-actions" aria-label="Permission actions">
+                <h3>Actions</h3>
+                <div class="actions">
+                    {% for option in permission.options %}
+                        <form method="post" action="{% url 'resolve_permission' permission.id %}" class="permission-option">
+                            {% csrf_token %}
+                            <button type="submit" name="option" value="{{ option.optionId }}"{% if option.kind == "reject_once" %} class="secondary"{% endif %}>
+                                {% if option.kind == "allow_once" %}Allow once{% else %}Reject{% endif %}</button>
+                            <small>Agent option: {{ option.name }}</small>
+                        </form>
+                    {% endfor %}
+                </div>
+                {% if mcp_approval_tool %}
+                    <p>Allow this request once and save a rule across tasks and ACP endpoints. Tool names and arguments are agent-reported, not independently verified. An entire server may include tools that execute commands or change files.</p>
+                    {% if mcp_kind_mismatch %}
+                        <p>The original tool reports <code>{{ mcp_kind_mismatch.origin }}</code>, and the permission reports <code>{{ mcp_kind_mismatch.permission }}</code>{% if mcp_kind_mismatch.intermediate %}; an update also reported <code>{{ mcp_kind_mismatch.intermediate }}</code>{% endif %}. This rule applies only to those reported kinds; existing rules remain unchanged. These kinds are not independently verified.</p>
+                    {% endif %}
+                    <form method="post" action="{% url 'resolve_permission' permission.id %}" class="permission-option">
+                        {% csrf_token %}
+                        <input type="hidden" name="mcp_scope" value="tool">
+                        <button type="submit" name="option" value="{{ directory_approval_option.optionId }}">Always allow {{ mcp_approval_tool.server }}-{{ mcp_approval_tool.tool }}</button>
+                        <small>Any arguments for this tool</small>
+                    </form>
+                    <form method="post" action="{% url 'resolve_permission' permission.id %}" class="permission-option">
+                        {% csrf_token %}
+                        <input type="hidden" name="mcp_scope" value="server">
+                        <button type="submit" name="option" value="{{ directory_approval_option.optionId }}">Always allow all tools on {{ mcp_approval_tool.server }}</button>
+                        <small>Any tool and arguments reported for this server</small>
+                    </form>
+                {% endif %}
+                {% if directory_approval_paths %}
+                    <p>Allow this request once and remember a directory for future automatic read/search approvals across tasks and ACPs.
+                        Every reported location must be allowed. This is not a sandbox and reads may expose secrets.
+                        {% if not directory_approval_enabled %}Automatic approvals are currently disabled; saving a directory does not enable them.{% endif %}</p>
+                    {% for directory in directory_approval_paths %}
+                        <form method="post" action="{% url 'resolve_permission' permission.id %}" class="permission-option">
+                            {% csrf_token %}
+                            <input type="hidden" name="directory" value="{{ directory }}">
+                            <button type="submit" name="option" value="{{ directory_approval_option.optionId }}">Always allow read/search for directory</button>
+                            <small>{{ directory }}</small>
+                        </form>
+                    {% endfor %}
+                {% endif %}
+                {% if command_approval_commands %}
+                    <details>
+                        <summary>Always allow command prefixes</summary>
+                        <p>Allow the entire request once and save the selected prefixes immediately across all tasks and ACP endpoints in this repository. Any matching arguments are allowed, and commands can execute project code or change files. Agent-reported commands are not independently verified; this is not a sandbox.</p>
+                        <p>Use complete arguments from the beginning of each command; clear a field to avoid saving that prefix. Future commands joined by <code>&amp;&amp;</code> or <code>||</code> are automatically approved only if every part matches a saved prefix. Other shell syntax, quotes, and expansions still require manual approval.</p>
+                        <form method="post" action="{% url 'resolve_permission' permission.id %}">
+                            {% csrf_token %}
+                            {% for command in command_approval_commands %}
+                                <div class="field">
+                                    <label for="command-prefix-{{ forloop.counter }}">Prefix for <code>{{ command }}</code></label>
+                                    <input id="command-prefix-{{ forloop.counter }}" name="command_prefix" value="{{ command }}">
+                                </div>
+                            {% endfor %}
+                            <button type="submit" name="option" value="{{ directory_approval_option.optionId }}">Allow once and save prefixes</button>
+                        </form>
+                    </details>
+                {% endif %}
+            </aside>
+        </div>
+    </section>
+{% else %}
+    <!-- Agent is working -->
+{% endif %}

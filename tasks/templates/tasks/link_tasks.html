@@ -1,0 +1,52 @@
+{% extends "tasks/base.html" %}
+{% load static %}
+{% block title %}Link tasks · {{ task.title }} · Flamethrower{% endblock %}
+{% block content %}
+  {% include "tasks/detail/heading.html" %}
+  <p><a href="{% url 'task_detail' task.id %}#task-links" class="hide-popover">Back to task</a></p>
+
+  <div class="grid">
+    <div>
+      <section class="card" id="task-link-editor">
+        <h2>Link an existing task</h2>
+        <form method="post" action="{% url 'add_task_link' task.id %}" data-link-existing>
+          {% csrf_token %}
+          {% if link_form.errors %}<div role="alert">{{ link_form.non_field_errors }}{{ link_form.relation.errors }}{{ link_form.target.errors }}</div>{% endif %}
+          <div class="field">{{ link_form.relation.label_tag }}{{ link_form.relation }}</div>
+          <div class="field" data-link-target>{{ link_form.target.label_tag }}{{ link_form.target }}</div>
+          <div class="field task-picker" data-task-picker hidden>
+            <label for="linked-task-search">Search tasks</label>
+            <input id="linked-task-search" type="search" placeholder="Search by #ID or title" autocomplete="off"
+                   role="combobox" aria-autocomplete="list" aria-controls="linked-task-results" aria-expanded="false" data-link-search>
+            <div id="linked-task-results" class="task-picker-results" role="listbox" aria-label="Matching tasks" hidden></div>
+            <p class="muted" data-link-search-status role="status"></p>
+          </div>
+          <div class="actions">
+            <button type="submit" data-link-submit>Link task</button>
+            <a class="button secondary" href="{% url 'task_detail' task.id %}#task-links" data-popover-close>Cancel</a>
+          </div>
+          <p class="muted" data-link-instant-note hidden>Selecting a task submits the chosen relationship and returns here.</p>
+        </form>
+      </section>
+
+      <section class="card" id="task-link-create">
+        <h2>Create linked task</h2>
+        <form method="post" action="{% url 'create_linked_task' task.id %}">
+          {% csrf_token %}
+          {% if linked_task_create_form.errors %}<div role="alert">{{ linked_task_create_form.non_field_errors }}{{ linked_task_create_form.relation.errors }}{{ linked_task_create_form.title.errors }}{{ linked_task_create_form.request.errors }}</div>{% endif %}
+          <div class="field">{{ linked_task_create_form.relation.label_tag }}{{ linked_task_create_form.relation }}</div>
+          <div class="field">{{ linked_task_create_form.title.label_tag }}{{ linked_task_create_form.title }}</div>
+          <div class="field">{{ linked_task_create_form.request.label_tag }}{{ linked_task_create_form.request }}</div>
+          <p class="muted">Creates a Ready task in Draft. Its request still requires approval before work starts.</p>
+          <div class="actions">
+            <button type="submit">Create linked task</button>
+            <a class="button secondary" href="{% url 'task_detail' task.id %}#task-links" data-popover-close>Cancel</a>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <aside>{% include "tasks/detail/links.html" with manage_links=True %}</aside>
+  </div>
+  <script src="{% static 'tasks/task-links.js' %}" defer></script>
+{% endblock %}

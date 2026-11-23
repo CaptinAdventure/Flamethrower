@@ -1,0 +1,15 @@
+<section class="card">
+    <h2>
+        {{ request_approval_intro }}
+        <span class="card-extra">version {{ task.version }}</span>
+    </h2>
+
+    <div class="content">{{ task.request }}</div>
+
+    <h3>Approval</h3>
+    <p>This approves the requested scope, not a plan or implementation.</p>
+    <p>Approving the request starts an Architect run automatically when an ACP is available.</p>
+    <form method="post" action="{% url 'approve_request' task.id %}">{% csrf_token %}{{ stage_form }}
+        <button type="submit">Approve request</button>
+    </form>
+</section>

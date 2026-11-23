@@ -1,0 +1,209 @@
+{% load markdown_rendering %}
+
+{% if latest_decision %}
+    <section class="card">
+        <h2>Recorded evidence</h2>
+
+        <p><strong>Latest recorded result:</strong> {{ latest_decision.get_result_display }}</p>
+        <div class="content">{{ latest_decision.evidence }}</div>
+
+        {% if latest_decision.waiver %}
+            <p><strong>Recorded waiver:</strong> {{ latest_decision.waiver }}</p>
+        {% endif %}
+    </section>
+{% endif %}
+
+{% if current_report %}
+    <section class="card">
+        {% if current_report.recommendation %}
+            <h2 class="{{ current_report.recommendation.result }}">
+                Agent recommends {{ current_report.recommendation.recommendation }}
+                <span class="card-extra">run #{{ current_report.run.id }}</span>
+            </h2>
+
+            <div class="markdown">{{ current_report.recommendation.summary|render_markdown }}</div>
+
+            <h3>Evidence</h3>
+            <div class="markdown">{{ current_report.recommendation.evidence|render_markdown }}</div>
+            <h3>Untested</h3>
+            <div class="markdown">{{ current_report.recommendation.untested|render_markdown }}</div>
+            <h3>Reason</h3>
+            <div class="markdown">{{ current_report.recommendation.reason|render_markdown }}</div>
+
+            <p>
+                {% if manual_workflow_actions_available %}
+                    Choose an action and review its evidence before saving.
+                {% elif not workflow_continue_block_reason %}
+                    The workflow will process this recommendation.
+                {% else %}
+                    Manual assessment is required before advancement.
+                {% endif %}
+            </p>
+
+            {% if current_report.recommendation.result == "passed" and current_report.recommendation.recommendation == "advance" %}
+                <p>A passing recommendation is not a recorded human decision.</p>
+            {% elif current_report.recommendation.recommendation == "rework" %}
+                <p>
+                    {% if not manual_workflow_actions_available and not workflow_continue_block_reason %}
+                        The workflow will return this task to Developer for rework.
+                    {% else %}
+                        Choose Return to Developer to review the suggested rework reason.
+                    {% endif %}
+                </p>
+            {% else %}
+                <p>This recommendation requires a manual assessment.</p>
+                {% if current_report.recommendation.result != "passed" %}
+                    <p>Advancing a failed or unverified gate requires an explicit Waiver / Force decision.</p>
+                {% endif %}
+            {% endif %}
+
+            <details>
+                <summary>Full final agent report</summary>
+                <div class="markdown">{{ current_report.text|render_markdown }}</div>
+            </details>
+        {% elif current_report.text %}
+            <h2>
+                Agent report
+                <span class="card-extra">run #{{ current_report.run.id }}</span>
+            </h2>
+
+            <p>The agent did not provide an explicit, valid gate recommendation. No result has been inferred; assess its report below.</p>
+
+            <div class="markdown">{{ current_report.text|render_markdown }}</div>
+        {% else %}
+            <h2>
+                Agent output
+                <span class="card-extra">run #{{ current_report.run.id }}</span>
+            </h2>
+
+            <p>No final agent report was recorded. The result is NOT YET VERIFIED.</p>
+        {% endif %}
+    </section>
+{% elif manual_workflow_actions_available %}
+    <section class="card">
+        <p>No completed {{ task.get_stage_display }} report matches this version and work cycle. Supply actual evidence before recording a result.</p>
+    </section>
+{% endif %}
+
+<section class="card">
+    <h2>{{ task.get_stage_display }} decision</h2>
+
+    {% if manual_workflow_actions_available %}
+        <p>Assess the {{ task.get_stage_display|lower }} evidence for version {{ task.version }}, work cycle {{ task.work_cycle }}. This does not reapprove the request or
+            plan.</p>
+    {% else %}
+        <p>The workflow will assess the {{ task.get_stage_display|lower }} report against the structured recommendation; a completed turn is not proof of a
+            passing result.</p>
+    {% endif %}
+
+    {% if manual_workflow_actions_available %}
+        {% if workflow_action == "pass" or workflow_action == "fail" or workflow_action == "hold" or workflow_action == "waiver" %}
+            <div data-action-editor>
+                <h3>{% if workflow_action == "pass" %}Pass {{ task.get_stage_display }}{% elif workflow_action == "fail" %}Fail
+                    {{ task.get_stage_display }}{% elif workflow_action == "hold" %}Hold {{ task.get_stage_display }}{% else %}Waiver / Force{% endif %}</h3>
+
+                {% if workflow_action == "fail" %}<p>Save a failed result without advancing. You can then return to Developer or rerun this stage.</p>
+                {% elif workflow_action == "hold" %}<p>Save a NOT YET VERIFIED result without advancing.</p>
+                {% elif workflow_action == "waiver" %}<p>Explicitly accept the risk of advancing a failed or unverified gate.</p>{% endif %}
+
+                {% if workflow_action == "pass" or workflow_action == "waiver" %}
+                    <p>Saving {% if task.stage == "testing" %}advances to Review{% else %}finishes this task{% endif %}.</p>
+                {% endif %}
+
+                <p>An agent turn completing does not establish a passing result. Record the actual evidence and your assessment.</p>
+
+                <form method="post" action="{% url 'record_gate' task.id %}">
+                    {% csrf_token %}
+                    {{ gate_form.version }}
+                    {{ gate_form.stage_version }}
+                    {{ gate_form.gate_action }}
+                    {{ gate_form.action }}
+                    {{ gate_form.non_field_errors }}
+
+                    {% if workflow_action == "waiver" %}
+                        <div class="field">
+                            <label for="{{ gate_form.result.id_for_label }}">Actual result</label>
+                            <select name="result" id="{{ gate_form.result.id_for_label }}" required>
+                                <option value="unverified"{% if gate_form.result.value == "unverified" %} selected{% endif %}>Not yet verified</option>
+                                <option value="failed"{% if gate_form.result.value == "failed" %} selected{% endif %}>Failed</option>
+                            </select>
+
+                            {{ gate_form.result.errors }}
+                        </div>
+                    {% else %}
+                        {{ gate_form.result.as_hidden }}
+                        {{ gate_form.result.errors }}
+                    {% endif %}
+
+                    <div class="field">
+                        {{ gate_form.evidence.label_tag }}
+                        {{ gate_form.evidence }}
+                        {{ gate_form.evidence.errors }}
+                    </div>
+
+                    {% if workflow_action == "waiver" %}
+                        <div class="field">
+                            <label for="{{ gate_form.waiver.id_for_label }}">Waiver reason (required)</label>
+                            <textarea name="waiver" id="{{ gate_form.waiver.id_for_label }}" rows="2" required>
+                            {{ gate_form.waiver.value|default_if_none:"" }}
+                        </textarea>
+                            {{ gate_form.waiver.errors }}
+                        </div>
+                    {% endif %}
+
+                    {{ gate_form.gate_action.errors }}
+                    {{ gate_form.action.errors }}
+
+                    <div class="actions">
+                        <button type="submit">Save</button>
+                        <a class="button secondary" href="{% url 'task_detail' task.id %}#next-action">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        {% elif workflow_action == "rework" %}
+            <div data-action-editor>
+                <h3>Return to Developer</h3>
+                <p>Saving returns this task for another Developer run and new Testing and Review decisions. The reason and latest result from this stage will be included
+                    in the next developer prompt.</p>
+                <form method="post" action="{% url 'return_to_developer' task.id %}">
+                    {% csrf_token %}{{ rework_form.version }}{{ rework_form.stage_version }}{{ rework_form.non_field_errors }}
+                    <div class="field">{{ rework_form.reason.label_tag }}{{ rework_form.reason }}{{ rework_form.reason.errors }}</div>
+                    <div class="actions">
+                        <button type="submit">Save</button>
+                        <a class="button secondary" href="{% url 'task_detail' task.id %}#next-action">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        {% elif workflow_action == "run" %}
+            {% include "tasks/detail/actions/run.html" %}
+        {% else %}
+            <div class="actions">
+                <a class="button secondary{% if current_report.recommendation.recommendation == 'rework' %} button-recommended{% endif %}"
+                   href="?next_action=rework#next-action">
+                    Return to Developer
+                    {% if current_report.recommendation.recommendation == 'rework' %} (Agent recommended){% endif %}
+                </a>
+
+                {% if not busy and not acp_issue %}
+                    <a class="button secondary" href="?next_action=run#next-action">
+                        {% if current_run.stage == task.stage %}
+                            Rerun
+                        {% else %}
+                            Run {{ task.get_stage_display }}
+                        {% endif %}
+                    </a>
+                {% endif %}
+
+                <a class="button secondary {% if current_report.recommendation.recommendation == 'advance' %} button-recommended{% endif %}"
+                   href="?next_action=pass#next-action">
+                    Pass
+                    {% if current_report.recommendation.recommendation == 'advance' %} (Agent recommended){% endif %}
+                </a>
+                <a class="button secondary" href="?next_action=fail#next-action">Fail</a>
+                <a class="button secondary{% if current_report.recommendation.recommendation == 'hold' %} button-recommended{% endif %}"
+                   href="?next_action=hold#next-action">Hold{% if current_report.recommendation.recommendation == 'hold' %} (Agent recommended){% endif %}</a>
+                <a class="button secondary" href="?next_action=waiver#next-action">Waiver / Force</a>
+            </div>
+        {% endif %}
+    {% endif %}
+</section>

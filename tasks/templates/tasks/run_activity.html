@@ -1,0 +1,22 @@
+{% extends "tasks/base.html" %}
+{% load static %}
+{% block title %}{{ task.title }} · Run #{{ run.id }} · Flamethrower{% endblock %}
+
+{% block content %}
+    {% include "tasks/detail/heading.html" %}
+
+    <p><a href="{% url 'task_detail' task.id %}#next-action">Back to task and next action</a></p>
+
+    <p id="live-status" role="status" class="muted"></p>
+
+    <div id="session-activity-page" data-active="{% if should_poll %}true{% else %}false{% endif %}">
+        {% if run_needs_attention %}<p>Run controls and pending permissions remain on the task page.</p>{% endif %}
+        {% include "tasks/detail/activity.html" %}
+    </div>
+
+    <script src="{% static 'tasks/diagrams.js' %}" data-renderer-url="{% static 'tasks/mermaid-renderer.js' %}" defer></script>
+
+    {% if should_poll %}
+        <script src="{% static 'tasks/live.js' %}" defer></script>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,25 @@
+<section class="card" data-action-editor>
+    <h2>{% if current_run.stage == task.stage %}Rerun{% else %}Run{% endif %} {{ task.get_stage_display }}</h2>
+    <p>ACP selection: <strong>{{ acp_selection_label }}</strong></p>
+
+    {% if acp_issue %}<p role="alert">{{ acp_issue }}</p>{% endif %}
+
+    {% if not busy and not acp_issue %}
+        <p>Saving starts a separate ACP session and sends the request and plan
+            {% if task.stage == "review" %} and recorded testing evidence
+            {% elif task.stage == "developer" and task.rework_note %} and rework context
+            {% endif %} to the agent.
+            The agent may send project content to its configured provider.</p>
+
+        <form method="post" action="{% url 'start_run' task.id %}">
+            {% csrf_token %}{{ stage_form }}
+            <div class="actions">
+                <button type="submit">Save</button>
+                <a class="button secondary" href="{% url 'task_detail' task.id %}#next-action">Cancel</a>
+            </div>
+        </form>
+    {% else %}
+        <p>{{ acp_issue }}</p>
+        <a class="button secondary" href="{% url 'task_detail' task.id %}#next-action">Cancel</a>
+    {% endif %}
+</section>

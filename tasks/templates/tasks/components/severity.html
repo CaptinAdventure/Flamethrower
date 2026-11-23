@@ -1,0 +1,21 @@
+<span class="severity severity-{{ severity }}">
+  {% if severity == "blocker" or severity == "critical" or severity == "major" or severity == "minor" or severity == "trivial" %}
+    <svg class="severity-icon" {% if show_label %}aria-hidden="true"{% else %}role="img"{% endif %} focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <title>{% if severity == "blocker" %}Blocker{% elif severity == "critical" %}Critical{% elif severity == "major" %}Major{% elif severity == "minor" %}Minor{% else %}Trivial{% endif %}</title>
+      {% if severity == "blocker" %}
+        <circle cx="12" cy="12" r="8"></circle><path d="M8 12h8"></path>
+      {% elif severity == "critical" %}
+        <path d="M6 5l6-3 6 3v16l-6-4-6 4z"></path>
+      {% elif severity == "major" %}
+        <path d="m5 9 7-5 7 5M5 15l7-5 7 5M5 21l7-5 7 5"></path>
+      {% elif severity == "minor" %}
+        <path d="m5 3 7 5 7-5M5 9l7 5 7-5M5 15l7 5 7-5"></path>
+      {% else %}
+        <circle cx="12" cy="12" r="8"></circle>
+      {% endif %}
+    </svg>
+    {% if show_label %}<span>{% if severity == "blocker" %}Blocker{% elif severity == "critical" %}Critical{% elif severity == "major" %}Major{% elif severity == "minor" %}Minor{% else %}Trivial{% endif %}</span>{% endif %}
+  {% else %}
+    <span>{% if not severity %}Choose severity{% else %}Unknown severity{% endif %}</span>
+  {% endif %}
+</span>

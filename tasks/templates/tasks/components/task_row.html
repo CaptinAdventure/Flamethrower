@@ -1,0 +1,41 @@
+<tr class="summary-task-row" data-task-row>
+    <td class="task-work-type">{% include "tasks/components/work_type.html" with work_type=task.work_type only %}</td>
+    <td class="task-id"><a href="{% url 'task_detail' task.id %}" title="#{{ task.id }} {{ task.title }}" data-task-preview-trigger>#{{ task.id }}</a></td>
+    <td class="task-summary">
+        <a href="{% url 'task_detail' task.id %}" title="#{{ task.id }} {{ task.title }}" data-task-preview-trigger>{{ task.title }}</a>
+        <div class="task-preview" data-task-preview role="tooltip" hidden>
+            <div class="task-preview-heading">
+                {% include "tasks/components/work_type.html" with work_type=task.work_type only %}
+                <strong>#{{ task.id }} {{ task.title }}</strong>
+            </div>
+            <div class="task-preview-meta">
+                <span class="badge">{{ task.get_stage_display }}</span>
+                <span>{{ task.get_status_display }}</span>
+                <span>Priority {{ task.priority }}</span>
+                {% include "tasks/components/severity.html" with severity=task.severity only %}
+            </div>
+            <p>{{ task.request|truncatechars:240 }}</p>
+        </div>
+    </td>
+    <td><span class="task-stage badge" title="{{ task.get_stage_display }}">{{ task.get_stage_display }}</span></td>
+    <td class="task-row-status">{{ task.get_status_display }}</td>
+    <td class="task-severity">{% include "tasks/components/severity.html" with severity=task.severity only %}</td>
+    {% if show_similarity %}<td class="task-row-similarity" title="Similarity score">Similarity {{ similarity|floatformat:3 }}</td>{% endif %}
+    <td class="task-row-actions">
+        <div class="task-row-action-list">
+            {% for action in actions %}
+                <form method="post" class="task-row-action{% if action.hide_popover %} hide-popover{% endif %}" action="{{ action.url }}">
+                    {% csrf_token %}
+                    {% for name, value in action.fields.items %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+                    <button type="submit" class="task-row-action-button task-row-action-{{ action.style }}" aria-label="{{ action.label }}" title="{{ action.label }}"{% if action.name %} name="{{ action.name }}" value="{{ action.value }}"{% endif %}>
+                        {% if action.icon == "check" or action.icon == "remove" %}
+                            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                {% if action.icon == "check" %}<path d="m5 12 4 4L19 6"></path>{% else %}<path d="M6 6l12 12M18 6 6 18"></path>{% endif %}
+                            </svg>
+                        {% else %}{{ action.label }}{% endif %}
+                    </button>
+                </form>
+            {% endfor %}
+        </div>
+    </td>
+</tr>

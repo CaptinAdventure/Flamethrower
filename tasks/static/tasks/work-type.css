@@ -1,0 +1,11 @@
+.work-type { display: inline-flex; align-items: center; gap: .35rem; vertical-align: middle; }
+.work-type-icon { flex: none; width: 1rem; height: 1rem; object-fit: contain; }
+.work-type-bug { color: #ff706d; }
+.work-type-enabler { color: var(--text, var(--body-fg, #222)); }
+.work-type-story { color: #93bc47; }
+.work-type-improvement { color: #3ac37b; }
+.work-type-task, .work-type-sub_task { color: #6ba5ff; }
+.work-type-test { color: #098c9c; }
+.work-type-test_plan { color: #e39a18; }
+.work-type-test_execution { color: #a0be31; }
+.work-type-event { color: #abd169; }

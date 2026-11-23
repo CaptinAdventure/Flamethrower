@@ -1,0 +1,17 @@
+{% extends "tasks/base.html" %}
+{% block title %}{% if creating %}Add ACP{% else %}Edit ACP{% endif %} · Flamethrower{% endblock %}
+{% block content %}
+<p><a href="{% url 'acp_list' %}">← ACP endpoints</a></p>
+<section class="card">
+  <h1>{% if creating %}Add ACP endpoint{% else %}Edit {{ endpoint.name }}{% endif %}</h1>
+  <p>Only loopback IP addresses and <code>localhost</code> are accepted. ACP servers are trusted and are not sandboxed.</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+      <div class="field">{{ field.label_tag }} {{ field }} {{ field.errors }}</div>
+    {% endfor %}
+    <button type="submit">Save ACP</button>
+  </form>
+</section>
+{% endblock %}

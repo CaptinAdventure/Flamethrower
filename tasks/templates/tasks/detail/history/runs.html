@@ -1,0 +1,13 @@
+{% if run %}
+    <section class="card" id="run-history">
+        <h2>Run history</h2>
+        {% for past in runs %}
+            <p>
+                <a href="{% url 'run_activity' task.id past.id %}">{{ past.get_stage_display }} run #{{ past.id }}</a>
+                · cycle {{ past.work_cycle }} ·
+                {{ past.get_status_display }}
+                {% if past.acp_endpoint %} · ACP: {{ past.acp_endpoint.name }}{% endif %}
+            </p>
+        {% endfor %}
+    </section>
+{% endif %}

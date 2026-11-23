@@ -1,0 +1,13 @@
+    <section class="card">
+      <h2>Gate history</h2>
+      {% for decision in gate_decisions %}
+        <details><summary>{{ decision.get_stage_display }}: {{ decision.get_result_display }}{% if decision.advanced %} · advanced{% else %} · recorded{% endif %}</summary>
+          <p>Request/plan version: {{ decision.task_version }}</p>
+          <p>Work cycle: {{ decision.work_cycle }}</p>
+          {% if decision.automatic and decision.source_run_id %}<p>The workflow automatically recorded the recommendation from <a href="{% url 'run_activity' task.id decision.source_run_id %}">run #{{ decision.source_run_id }}</a>; the report is not independently verified.</p>
+          {% elif decision.source_run_id %}<p>Human accepted the recommendation from <a href="{% url 'run_activity' task.id decision.source_run_id %}">run #{{ decision.source_run_id }}</a>; the report is not independently verified.</p>{% endif %}
+          <p><strong>{% if decision.automatic %}Agent-reported evidence:{% elif decision.recorded_by == "mcp" %}MCP agent-recorded evidence:{% else %}Human-recorded evidence:{% endif %}</strong></p><div class="content">{{ decision.evidence }}</div>
+          {% if decision.waiver %}<p><strong>Waiver:</strong></p><div class="content">{{ decision.waiver }}</div>{% endif %}
+        </details>
+      {% empty %}<p>No gate results recorded.</p>{% endfor %}
+    </section>

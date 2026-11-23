@@ -1,0 +1,32 @@
+{% extends "tasks/base.html" %}
+{% load static %}
+{% block title %}{{ task.title }} · Flamethrower{% endblock %}
+
+{% block content %}
+    {% include "tasks/detail/heading.html" %}
+    {% include "tasks/detail/progress.html" %}
+    {% include "tasks/detail/next_action/index.html" %}
+
+    <p id="live-status" role="status" class="muted"></p>
+    <div class="grid">
+        <div>
+            {% if not show_next_action_request %}{% include "tasks/detail/request.html" %}{% endif %}
+            {% include "tasks/detail/plan.html" %}
+            {% include "tasks/detail/work_type_suggestion.html" %}
+            {% include "tasks/detail/suggestions.html" %}
+            {% include "tasks/detail/links.html" %}
+        </div>
+
+        <aside>
+            {% include "tasks/detail/history/deferred_origin.html" %}
+            {% include "tasks/detail/history/runs.html" %}
+            {% include "tasks/detail/history/decisions.html" %}
+            {% include "tasks/detail/history/gates.html" %}
+        </aside>
+    </div>
+
+    <script src="{% static 'tasks/diagrams.js' %}" data-renderer-url="{% static 'tasks/mermaid-renderer.js' %}" defer></script>
+    <script src="{% static 'tasks/workflow-actions.js' %}" defer></script>
+    <script src="{% static 'tasks/live.js' %}" defer></script>
+    <script src="{% static 'tasks/title-editor.js' %}" defer></script>
+{% endblock %}

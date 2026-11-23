@@ -1,0 +1,12 @@
+<ol class="workflow-progress" id="workflow-progress" aria-label="Task progress">
+  {% for step in workflow_steps %}
+    <li class="workflow-step{% if step.complete %} workflow-complete{% elif step.current %} workflow-current{% endif %}"{% if step.current %} aria-current="step"{% endif %}>
+      <span class="status">
+        {% if step.current and current_run.status == "running" and current_run.stage == step.key %}
+          <span class="status-dot status-dot-green" role="img" aria-label="Agent running"></span>
+        {% endif %}
+        {{ step.label }}
+      </span>
+    </li>
+  {% endfor %}
+</ol>

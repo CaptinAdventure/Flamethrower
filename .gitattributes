@@ -1,0 +1,2 @@
+# Generated JavaScript contains whitespace within template literals.
+tasks/static/tasks/mermaid-renderer.js whitespace=-blank-at-eol

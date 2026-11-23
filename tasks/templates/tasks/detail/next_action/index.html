@@ -1,0 +1,33 @@
+<div id="next-action"
+         data-active="{% if should_poll %}true{% else %}false{% endif %}"
+         aria-live="polite">
+    {% if blocking_run and blocking_run.task_id != task.id %}
+        {% include "tasks/detail/next_action/blocked.html" %}
+    {% endif %}
+
+    {% if not current_run_active %}
+        <!-- <p class="muted">No active agent run is recorded for this task.</p> -->
+    {% endif %}
+
+    {% if current_run_active %}
+        {% include "tasks/detail/next_action/run.html" %}
+    {% elif current_run.status == "interrupted" %}
+        {% include "tasks/detail/next_action/interrupted.html" %}
+    {% elif task.finished %}
+        {% include "tasks/detail/next_action/finished.html" %}
+    {% elif task.status != "ready" %}
+        {% include "tasks/detail/next_action/not_ready.html" %}
+    {% elif show_next_action_request %}
+        {% if task.stage == "draft" %}
+            {% include "tasks/detail/next_action/request.html" with request_approval_intro="Review and approve the request before architecture." %}
+        {% else %}
+            {% include "tasks/detail/next_action/request.html" with request_approval_intro="Review and approve the request before generating or approving a plan." %}
+        {% endif %}
+    {% elif task.stage == "architect" %}
+        {% include "tasks/detail/next_action/architect.html" %}
+    {% elif task.stage == "developer" %}
+        {% include "tasks/detail/next_action/developer.html" %}
+    {% elif task.stage == "testing" or task.stage == "review" %}
+        {% include "tasks/detail/next_action/gate.html" %}
+    {% endif %}
+</div>

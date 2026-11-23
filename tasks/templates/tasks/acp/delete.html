@@ -1,0 +1,9 @@
+{% extends "tasks/base.html" %}
+{% block title %}Delete ACP · Flamethrower{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Delete {{ endpoint.name }}?</h1>
+  <p>This cannot be deleted while tasks select it or run history refers to it.</p>
+  <form method="post">{% csrf_token %}<button type="submit" class="secondary">Delete ACP</button> <a href="{% url 'acp_list' %}">Cancel</a></form>
+</section>
+{% endblock %}

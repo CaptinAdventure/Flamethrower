@@ -1,0 +1,32 @@
+{% load tz %}
+<section class="card" id="task-links">
+    <h2>Linked tasks
+        <span class="card-extra"><a href="{% url 'task_links' task.id %}" data-popover data-popover-refresh="task-links">Link task</a></span>
+    </h2>
+
+    <p class="muted">Links describe relationships; they do not automatically prevent a blocked task from advancing.</p>
+
+    {% for description, items in linked_task_groups.items %}
+        <h3>{{ description }}</h3>
+        <div class="summary-task-list-scroll"><table class="summary-task-list" aria-label="{{ description }}">{% include "tasks/components/task_row_header.html" %}<tbody>
+            {% for item in items %}
+                {% include "tasks/components/task_row.html" with task=item.other actions=item.actions csrf_token=csrf_token only %}
+            {% endfor %}
+        </tbody></table></div>
+    {% empty %}
+        <p>No linked tasks. <a href="{% url 'task_links' task.id %}" class="hide-popover" data-popover data-popover-refresh="task-links">Link existing work or create a related task.</a></p>
+    {% endfor %}
+
+    <details>
+        <summary>Link history (latest 50 events)</summary>
+        {% for item in link_history %}
+            <p>
+                <time datetime="{{ item.event.created_at|utc|date:'c' }}">{{ item.event.created_at|utc|date:"Y-m-d H:i:s" }} UTC</time>
+                · {{ item.event.get_action_display }}: {{ item.description }}
+                <a href="{% url 'task_detail' item.other.id %}">#{{ item.other.id }} {{ item.title }}</a>
+            </p>
+        {% empty %}
+            <p>No link activity recorded yet.</p>
+        {% endfor %}
+    </details>
+</section>

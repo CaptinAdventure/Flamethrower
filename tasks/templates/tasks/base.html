@@ -1,0 +1,78 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% block refresh %}{% endblock %}
+    <title>{% block title %}Flamethrower{% endblock %}</title>
+    <script>
+        (() => {
+            const key = "flamethrower-theme";
+            let choice = "system";
+            try {
+                const storedChoice = localStorage.getItem(key);
+                if (["light", "dark", "system"].includes(storedChoice)) choice = storedChoice;
+            } catch (_) {
+            }
+            const prefersDark = typeof window.matchMedia === "function" &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches;
+            const dark = choice === "dark" ||
+                (choice === "system" && prefersDark);
+            document.documentElement.dataset.theme = dark ? "dark" : "light";
+            document.documentElement.dataset.themeChoice = choice;
+        })();
+    </script>
+    <link rel="stylesheet" href="{% static 'tasks/app.css' %}">
+    <link rel="stylesheet" href="{% static 'tasks/severity.css' %}">
+    <link rel="stylesheet" href="{% static 'tasks/work-type.css' %}">
+    <script src="{% static 'tasks/theme.js' %}" defer></script>
+    <script src="{% static 'tasks/header-settings.js' %}" defer></script>
+    <script src="{% static 'tasks/popover.js' %}" defer></script>
+    <script src="{% static 'tasks/severity.js' %}" defer></script>
+    <script src="{% static 'tasks/task-preview.js' %}" defer></script>
+</head>
+
+<body>
+<header>
+    <a href="{% url 'task_list' %}">Flamethrower</a>
+    <span class="header-subtitle">Local planning</span>
+    <form method="get" action="{% url 'task_list' %}" class="task-search" role="search">
+        <input id="task-search" type="search" name="q" value="{{ search_query|default:'' }}" placeholder="Search tasks" aria-label="Search tasks">
+        <button type="submit" aria-label="Search tasks">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m16 16 4 4"></path>
+            </svg>
+        </button>
+    </form>
+    <details class="header-settings">
+        <summary aria-label="Settings" title="Settings">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.5a2 2 0 0 1-1 1.74l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.73l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+            </svg>
+        </summary>
+        <div class="header-settings-panel">
+            <a href="{% url 'admin:index' %}">Django admin</a>
+            <a href="{% url 'acp_list' %}">ACP configurations</a>
+            <fieldset class="theme-switcher">
+                <legend>Theme</legend>
+                <label><input type="radio" name="theme" value="light"> Light</label>
+                <label><input type="radio" name="theme" value="dark"> Dark</label>
+                <label><input type="radio" name="theme" value="system"> System</label>
+            </fieldset>
+        </div>
+    </details>
+</header>
+
+<main>
+    {% for message in messages %}<p class="card" role="status">{{ message }}</p>{% endfor %}
+    {% block content %}{% endblock %}
+</main>
+
+<footer>
+
+</footer>
+</body>
+</html>

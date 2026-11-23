@@ -1,0 +1,135 @@
+{% extends "tasks/base.html" %}
+{% block title %}ACPs · Flamethrower{% endblock %}
+{% block content %}
+<div class="heading">
+  <div><h1>ACP endpoints</h1><p class="muted">Endpoints are trusted local ACP servers and can execute tools or modify project files.</p></div>
+  <a class="button" href="{% url 'acp_create' %}">Add ACP</a>
+</div>
+<section class="card">
+  <h2>Repository read/search permissions</h2>
+  <p>When enabled, approve only ACP <code>read</code> and <code>search</code> requests that report at least one existing location, with every location resolving inside the configured project directory or matching an additional allowed path below, and offer an “allow once” choice. Relative locations are resolved against the ACP project directory; relative paths containing <code>..</code> are not automatically approved. Other requests still require manual approval.</p>
+  <p class="automation-paused" role="note">This is an approval convenience, not repository isolation or a sandbox. ACP servers are trusted; reported locations and kinds are agent-supplied metadata, and reads may expose secrets.</p>
+  <form method="post" action="{% url 'set_safe_operations' %}">
+    {% csrf_token %}
+    {% if allow_safe_operations %}
+      <button type="submit" name="allow_safe_operations" value="false" class="secondary">Disable automatic safe read/search approvals</button>
+    {% else %}
+      <button type="submit" name="allow_safe_operations" value="true">Enable automatic safe read/search approvals</button>
+    {% endif %}
+    <span class="muted">Currently {{ allow_safe_operations|yesno:"enabled,disabled" }} for this repository across tasks, stages, and endpoints.</span>
+  </form>
+  <h3>Additional allowed paths</h3>
+  <p>Allow only paths you trust the agent to read. Directory entries include all descendants; file entries allow only that file. Symlinks are checked against their resolved targets, including virtualenv executables. Saving paths does not enable automatic approvals or approve an already pending request.</p>
+  <form method="post" action="{% url 'set_safe_read_paths' %}">
+    {% csrf_token %}
+    {{ safe_read_paths_form.non_field_errors }}
+    <div class="field">
+      {{ safe_read_paths_form.safe_read_paths.label_tag }}
+      {{ safe_read_paths_form.safe_read_paths }}
+      <p class="muted">{{ safe_read_paths_form.safe_read_paths.help_text }}</p>
+      {{ safe_read_paths_form.safe_read_paths.errors }}
+    </div>
+    <button type="submit">Save allowed paths</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Automatically allowed MCP tools</h2>
+  <p>These rules apply across tasks and ACP endpoints, regardless of tool arguments or read/search settings. Names are agent-reported, not independently verified. An entire server can include tools that execute commands or change files.</p>
+  {% for rule in allowed_mcp_tools %}
+    <form method="post" action="{% url 'remove_mcp_rule' %}" class="actions">
+      {% csrf_token %}
+      <input type="hidden" name="server" value="{{ rule.server }}">
+      {% if rule.tool %}
+        <input type="hidden" name="scope" value="tool">
+        <input type="hidden" name="tool" value="{{ rule.tool }}">
+        <code>{{ rule.server }}-{{ rule.tool }}</code>
+      {% else %}
+        <input type="hidden" name="scope" value="server">
+        <code>All tools on {{ rule.server }}</code>
+      {% endif %}
+      {% if rule.kindMismatch %}
+        <input type="hidden" name="kind_mismatch" value="{{ rule.kindMismatch.origin }}:{{ rule.kindMismatch.permission }}">
+        {% if rule.kindMismatch.intermediate %}
+          <input type="hidden" name="intermediate_kind" value="{{ rule.kindMismatch.intermediate }}">
+        {% endif %}
+        <span>Original kind: {{ rule.kindMismatch.origin }} · Permission kind: {{ rule.kindMismatch.permission }}</span>
+        {% if rule.kindMismatch.intermediate %}<span>Update kind: {{ rule.kindMismatch.intermediate }}</span>{% endif %}
+      {% endif %}
+      <button type="submit" class="secondary">Remove</button>
+    </form>
+  {% empty %}
+    <p>No MCP tools allowed. Save a rule from an eligible permission request.</p>
+  {% endfor %}
+</section>
+<section class="card">
+  <h2>Month-to-date reported usage</h2>
+  <p>Runs are attributed by their creation date from {{ usage_period_start|date:"Y-m-d" }}. Costs are ACP-reported and kept separate by currency; no billing estimate is calculated. Missing reports are not counted as zero.</p>
+  <table>
+    <thead><tr><th>ACP endpoint</th><th>Reported cost by currency</th><th>Reported token totals</th><th>Runs without cost reports</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.endpoint.name }}</td>
+        <td>
+          {% for currency, total in row.usage.costs.items %}
+            {{ total.formatted_amount }} {{ currency }} (
+            {% for run in total.runs %}<a href="{% url 'run_activity' run.task_id run.id %}">run #{{ run.id }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})<br>
+          {% empty %}
+            Not reported
+          {% endfor %}
+        </td>
+        <td>
+          {% if row.usage.total_tokens != None %}
+            {{ row.usage.total_tokens }} total · {% if row.usage.input_tokens != None %}{{ row.usage.input_tokens }}{% else %}Not reported{% endif %} input · {% if row.usage.output_tokens != None %}{{ row.usage.output_tokens }}{% else %}Not reported{% endif %} output tokens ({{ row.usage.token_runs }} runs)
+          {% else %}
+            Not reported
+          {% endif %}
+        </td>
+        <td>
+          {{ row.usage.runs_without_cost|length }}
+          {% for run in row.usage.runs_without_cost %}<br><a href="{% url 'run_activity' run.task_id run.id %}">Run #{{ run.id }}</a>{% empty %} —{% endfor %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4">No ACP endpoints configured.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>Automatically allowed command prefixes</h2>
+  <p>Rules are active immediately across tasks, stages, and ACP endpoints, independently of read/search approvals. Matching uses complete arguments. For commands joined by <code>&amp;&amp;</code> or <code>||</code>, every part must match a saved prefix. Other shell syntax, quotes, and expansions still require manual approval.</p>
+  <p class="automation-paused" role="note">Commands can execute project code and modify files, even when they look like tests. The command is agent-reported and not independently verified; this is not a sandbox.</p>
+  {% for prefix in allowed_command_prefixes %}
+    <form method="post" action="{% url 'remove_command_prefix' %}" class="actions">
+      {% csrf_token %}
+      <code>{{ prefix }}</code>
+      <button type="submit" name="prefix" value="{{ prefix }}" class="secondary">Remove</button>
+    </form>
+  {% empty %}
+    <p>No command prefixes allowed. Save one from an eligible permission request.</p>
+  {% endfor %}
+</section>
+<section class="card">
+  <table>
+    <thead><tr><th>Name</th><th>Endpoint</th><th>Priority</th><th>Enabled</th><th>Status</th><th>Current run</th><th>Current task</th><th>Last check / error</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.endpoint.name }}</td>
+        <td><code>{{ row.endpoint.address }}</code></td>
+        <td>{{ row.endpoint.priority }}</td>
+        <td>{{ row.endpoint.enabled|yesno:"Enabled,Disabled" }}</td>
+        <td>{{ row.status }}</td>
+        <td>{% if row.run %}<a href="{% url 'run_activity' row.run.task_id row.run.id %}">#{{ row.run.id }} · {{ row.run.get_status_display }}</a>{% else %}—{% endif %}</td>
+        <td>{% if row.run %}<a href="{% url 'task_detail' row.run.task_id %}">#{{ row.run.task_id }} {{ row.run.task.title }}</a>{% else %}—{% endif %}</td>
+        <td>{% if row.endpoint.last_checked_at %}{{ row.endpoint.last_checked_at }}{% else %}Never checked{% endif %}{% if row.endpoint.last_error %}<br><span class="errorlist">{{ row.endpoint.last_error }}</span>{% endif %}</td>
+        <td><a href="{% url 'acp_edit' row.endpoint.id %}">Edit</a> · <a href="{% url 'acp_delete' row.endpoint.id %}">Delete</a>{% if row.endpoint.enabled and row.status != "Busy" %} · <form method="post" action="{% url 'acp_check' row.endpoint.id %}" class="inline-form">{% csrf_token %}<button type="submit" class="secondary">Check connection</button></form>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9">No ACP endpoints configured. Add one to start agent runs.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

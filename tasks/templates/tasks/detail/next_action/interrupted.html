@@ -1,0 +1,6 @@
+<h2>Interrupted</h2>
+<p>{{ current_run.error }}</p>
+<p><strong>Not yet verified:</strong> The agent may still be working or may have changed files. Inspect the project and server before continuing.</p>
+<form method="post" action="{% url 'acknowledge_run' current_run.id %}">{% csrf_token %}
+    <button type="submit">I inspected the interruption</button>
+</form>

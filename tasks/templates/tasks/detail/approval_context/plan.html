@@ -1,0 +1,6 @@
+<div class="approval-context">
+    <h3>Plan to approve</h3>
+    <p><strong>{{ task.title }}</strong> · version {{ task.version }}</p>
+    {% include "tasks/components/plan.html" with plan_text=task.plan only %}
+    <p>This authorizes Developer work on this plan. It does not approve the resulting implementation.</p>
+</div>

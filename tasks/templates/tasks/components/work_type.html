@@ -1,0 +1,33 @@
+{% if work_type %}
+<span class="work-type" title="{{ work_type.title }}: {{ work_type.description }}">
+  {% if work_type.icon_image %}
+    <img class="work-type-icon" src="{{ work_type.icon_image.url }}" alt="{{ work_type.title }}" width="16" height="16">
+  {% else %}
+    <svg class="work-type-icon work-type-{{ work_type.icon }}" role="img" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <title>{{ work_type.title }}</title><desc>{{ work_type.description }}</desc>
+      {% if work_type.icon == "bug" %}
+        <rect x="7" y="7" width="10" height="13" rx="5"></rect><path d="M9 7V4m6 3V4M3 10h4m10 0h4M3 15h4m10 0h4M4 21l4-4m8 0 4 4M8 7h8"></path>
+      {% elif work_type.icon == "enabler" %}
+        <path d="m7 12 9-5M7 12l9 5"></path><circle cx="5" cy="12" r="2" fill="currentColor"></circle><circle cx="18" cy="6" r="2" fill="currentColor"></circle><circle cx="18" cy="18" r="2" fill="currentColor"></circle>
+      {% elif work_type.icon == "story" %}
+        <path d="M6 3h12v18l-6-4-6 4z"></path>
+      {% elif work_type.icon == "improvement" %}
+        <rect x="2" y="2" width="20" height="20" rx="2" fill="currentColor" stroke="none"></rect><path d="M12 17V7m-4 4 4-4 4 4" stroke="white"></path>
+      {% elif work_type.icon == "task" %}
+        <rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="m7 12 3 3 7-7"></path>
+      {% elif work_type.icon == "sub_task" %}
+        <rect x="3" y="3" width="10" height="10" rx="1"></rect><rect x="11" y="11" width="10" height="10" rx="1"></rect>
+      {% elif work_type.icon == "test" %}
+        <rect x="2" y="2" width="20" height="20" rx="2" fill="currentColor" stroke="none"></rect><circle cx="12" cy="12" r="5" stroke="white"></circle>
+      {% elif work_type.icon == "test_plan" %}
+        <rect x="2" y="2" width="20" height="20" rx="2" fill="currentColor" stroke="none"></rect><path d="M7 8h10M7 12h7M7 16h4" stroke="white"></path>
+      {% elif work_type.icon == "test_execution" %}
+        <rect x="2" y="2" width="20" height="20" rx="2" fill="currentColor" stroke="none"></rect><path d="m9 7 7 5-7 5z" fill="white" stroke="none"></path>
+      {% elif work_type.icon == "event" %}
+        <path d="M7 3h10v18H7zM4 21h16M10 7h4m-4 4h4m-4 4h4m-2 3v3"></path>
+      {% endif %}
+    </svg>
+  {% endif %}
+  {% if show_title %}<span>{{ work_type.title }}</span>{% endif %}
+</span>
+{% endif %}

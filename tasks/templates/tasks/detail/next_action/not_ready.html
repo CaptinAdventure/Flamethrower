@@ -1,0 +1,43 @@
+<section class="card">
+    <h2>Not ready</h2>
+    <div class="grid">
+        <div>
+            <p>This task is {{ task.get_status_display }}. Set its status to Ready before advancing or starting a run.</p>
+            {% if task.blocked_reason %}<p><strong>Constraint:</strong> {{ task.blocked_reason }}</p>{% endif %}
+        </div>
+
+        <aside>
+            <form method="post" action="{% url 'set_task_metadata' task.id %}">
+                {% csrf_token %}
+                {{ stage_form.version }}
+                {{ stage_form.stage_version }}
+                <input type="hidden" name="severity" value="{{ task.severity }}">
+                <input type="hidden" name="work_type" value="{{ task.work_type_id }}">
+                <div class="actions">
+                    <button type="submit" name="status" value="ready">Set to Ready</button>
+                    {% if task.status != "abandoned" %}
+                        <button type="submit" name="status" value="abandoned" class="secondary">Set to Abandoned</button>
+                    {% endif %}
+                </div>
+            </form>
+            {% if task.status != "blocked" %}
+                <details>
+                    <summary>Set to Blocked</summary>
+                    <form method="post" action="{% url 'set_task_metadata' task.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="version" value="{{ task.version }}">
+                        <input type="hidden" name="stage_version" value="{{ task.stage_version }}">
+                        <input type="hidden" name="status" value="blocked">
+                        <input type="hidden" name="severity" value="{{ task.severity }}">
+                        <input type="hidden" name="work_type" value="{{ task.work_type_id }}">
+                        <div class="field">
+                            <label for="blocked-reason">Constraint blocking this task</label>
+                            <textarea id="blocked-reason" name="blocked_reason" rows="2" required></textarea>
+                        </div>
+                        <button type="submit" class="secondary">Set to Blocked</button>
+                    </form>
+                </details>
+            {% endif %}
+        </aside>
+    </div>
+</section>
