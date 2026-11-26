@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from acp.exceptions import RequestError
-from django.db import IntegrityError, transaction
 from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase
 from django.urls import reverse
 
+from ..acp import AcpUnavailable, create_run
 from ..automation import continue_automatic_run
 from ..deferred import complete_run, parse_deferred_tasks
 from ..models import AcpEndpoint, AgentQuestion, AgentRun, PermissionRequest, RunEvent, Task
@@ -159,15 +159,16 @@ class QuestionTests(TestCase):
         self.assertEqual(self.run.status, AgentRun.Status.WAITING_ANSWER)
 
     def test_pending_question_blocks_completion_and_reserves_endpoint(self):
-        endpoint = AcpEndpoint.objects.create(name="Endpoint", port=12345)
+        endpoint = AcpEndpoint.objects.create(name="Endpoint", port=12345, session_limit=1)
         self.run.acp_endpoint = endpoint
         self.run.save(update_fields=["acp_endpoint"])
         create_question(self.run.pk, "Question?", TEXT_SCHEMA, "turn")
         with self.assertRaises(RuntimeError):
             complete_run(self.run.pk, "end_turn")
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            AgentRun.objects.create(
-                task=self.task, acp_endpoint=endpoint, task_version=0, request_snapshot="r", plan_snapshot="p",
+        with self.assertRaises(AcpUnavailable):
+            create_run(
+                Task.objects.create(title="Other", request="r"),
+                task_version=0, request_snapshot="r", plan_snapshot="p",
             )
 
     def test_deferred_report_can_precede_developer_completion(self):

@@ -112,7 +112,7 @@
 </section>
 <section class="card">
   <table>
-    <thead><tr><th>Name</th><th>Endpoint</th><th>Priority</th><th>Enabled</th><th>Status</th><th>Current run</th><th>Current task</th><th>Last check / error</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Name</th><th>Endpoint</th><th>Priority</th><th>Enabled</th><th>Status</th><th>Sessions</th><th>Current runs</th><th>Last check / error</th><th>Actions</th></tr></thead>
     <tbody>
       {% for row in rows %}
       <tr>
@@ -121,10 +121,10 @@
         <td>{{ row.endpoint.priority }}</td>
         <td>{{ row.endpoint.enabled|yesno:"Enabled,Disabled" }}</td>
         <td>{{ row.status }}</td>
-        <td>{% if row.run %}<a href="{% url 'run_activity' row.run.task_id row.run.id %}">#{{ row.run.id }} · {{ row.run.get_status_display }}</a>{% else %}—{% endif %}</td>
-        <td>{% if row.run %}<a href="{% url 'task_detail' row.run.task_id %}">#{{ row.run.task_id }} {{ row.run.task.title }}</a>{% else %}—{% endif %}</td>
+        <td>{{ row.runs|length }} / {{ row.endpoint.session_limit }}</td>
+        <td>{% for run in row.runs %}<div><a href="{% url 'run_activity' run.task_id run.id %}">#{{ run.id }} · {{ run.get_status_display }}</a> — <a href="{% url 'task_detail' run.task_id %}">#{{ run.task_id }} {{ run.task.title }}</a></div>{% empty %}—{% endfor %}</td>
         <td>{% if row.endpoint.last_checked_at %}{{ row.endpoint.last_checked_at }}{% else %}Never checked{% endif %}{% if row.endpoint.last_error %}<br><span class="errorlist">{{ row.endpoint.last_error }}</span>{% endif %}</td>
-        <td><a href="{% url 'acp_edit' row.endpoint.id %}">Edit</a> · <a href="{% url 'acp_delete' row.endpoint.id %}">Delete</a>{% if row.endpoint.enabled and row.status != "Busy" %} · <form method="post" action="{% url 'acp_check' row.endpoint.id %}" class="inline-form">{% csrf_token %}<button type="submit" class="secondary">Check connection</button></form>{% endif %}</td>
+        <td><a href="{% url 'acp_edit' row.endpoint.id %}">Edit</a> · <a href="{% url 'acp_delete' row.endpoint.id %}">Delete</a>{% if row.endpoint.enabled and not row.runs %} · <form method="post" action="{% url 'acp_check' row.endpoint.id %}" class="inline-form">{% csrf_token %}<button type="submit" class="secondary">Check connection</button></form>{% endif %}</td>
       </tr>
       {% empty %}
       <tr><td colspan="9">No ACP endpoints configured. Add one to start agent runs.</td></tr>

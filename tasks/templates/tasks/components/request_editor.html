@@ -1,0 +1,23 @@
+{% if current_run_active %}
+    <div class="content">{{ task.request }}</div>
+{% else %}
+    <div data-request-container>
+        <button type="button" class="task-request-display content" data-request-display aria-describedby="task-request-edit-hint">{{ task.request }}</button>
+        <span id="task-request-edit-hint" class="sr-only">Press Enter to edit the requested change.</span>
+        <form method="post" class="task-request-editor" data-request-editor action="{% url 'update_task_request' task.id %}" hidden>
+            {% csrf_token %}
+            <label class="sr-only" for="task-request-input">Requested change</label>
+            <textarea id="task-request-input" name="request" rows="12" required data-request-input>{{ task.request }}</textarea>
+            {% if task.stage != "draft" or task.state != "draft" %}
+                <p class="muted">Saving a changed request returns the task to Draft and requires reapproval.</p>
+            {% endif %}
+            <input type="hidden" name="version" value="{{ task.version }}">
+            <input type="hidden" name="stage_version" value="{{ task.stage_version }}">
+            <div class="task-title-editor-actions">
+                <button type="submit" class="secondary" data-request-save>Save</button>
+                <button type="button" class="secondary" data-request-cancel>Cancel</button>
+            </div>
+        </form>
+        <p class="task-title-status muted" role="status" data-request-status aria-live="polite"></p>
+    </div>
+{% endif %}

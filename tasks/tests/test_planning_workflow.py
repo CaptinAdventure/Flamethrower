@@ -76,6 +76,7 @@ class PlanningWorkflowTests(TestCase):
 
     def test_next_action_shows_blocking_task_and_links_to_its_next_action(self):
         self.endpoint.enabled = True
+        self.endpoint.session_limit = 1
         self.endpoint.save()
         blocking_task = Task.objects.create(title="Blocking task", request="Run first")
         AgentRun.objects.create(
@@ -86,7 +87,7 @@ class PlanningWorkflowTests(TestCase):
         response = self.client.get(reverse("task_detail", args=[self.task.pk]))
 
         self.assertContains(response, "Task is blocked")
-        self.assertContains(response, "Another task is Running:")
+        self.assertContains(response, "A reserved run is Running:")
         blocking_task_url = f'{reverse("task_detail", args=[blocking_task.pk])}#next-action'
         self.assertContains(response, f'href="{blocking_task_url}">{blocking_task.title}</a>')
 

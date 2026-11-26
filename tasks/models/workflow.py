@@ -24,6 +24,7 @@ class AcpEndpoint(models.Model):
     host = models.CharField(max_length=255, default="127.0.0.1", validators=[validate_acp_host])
     port = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(65535)])
     priority = models.PositiveIntegerField(default=1)
+    session_limit = models.PositiveIntegerField(default=5, validators=[MinValueValidator(1)])
     enabled = models.BooleanField(default=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     last_success_at = models.DateTimeField(null=True, blank=True)
@@ -41,6 +42,7 @@ class AcpEndpoint(models.Model):
                 condition=Q(port__gte=1, port__lte=65535),
                 name="acp_port_valid_range",
             ),
+            models.CheckConstraint(condition=Q(session_limit__gte=1), name="acp_session_limit_positive"),
         ]
 
     @property
@@ -101,13 +103,6 @@ class AgentRun(models.Model):
 
     class Meta:
         ordering = ["-id"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["acp_endpoint"],
-                condition=Q(status__in=("starting", "running", "waiting", "waiting_answer", "interrupted")),
-                name="one_active_run_per_acp",
-            ),
-        ]
         indexes = [
             models.Index(fields=["acp_endpoint", "status"], name="run_acp_status_idx"),
         ]

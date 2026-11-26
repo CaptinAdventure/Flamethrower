@@ -4,7 +4,7 @@
         <span class="card-extra">version {{ task.version }}</span>
     </h2>
 
-    <div class="content">{{ task.request }}</div>
+    {% include "tasks/components/request_editor.html" %}
 
     <h3>Approval</h3>
     <p>This approves the requested scope, not a plan or implementation.</p>

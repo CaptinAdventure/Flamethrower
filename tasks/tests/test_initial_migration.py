@@ -6,6 +6,7 @@ from django.test import TransactionTestCase, override_settings
 class InitialMigrationTests(TransactionTestCase):
     def test_fresh_database_without_configured_endpoint(self):
         initial = [("tasks", "0001_initial")]
+        latest = MigrationExecutor(connection).loader.graph.leaf_nodes()
         try:
             MigrationExecutor(connection).migrate([("tasks", None)])
             with override_settings(ACP_PORT=""):
@@ -15,10 +16,11 @@ class InitialMigrationTests(TransactionTestCase):
             self.assertFalse(apps.get_model("tasks", "AcpEndpoint").objects.exists())
         finally:
             MigrationExecutor(connection).migrate([("tasks", None)])
-            MigrationExecutor(connection).migrate(initial)
+            MigrationExecutor(connection).migrate(latest)
 
     def test_fresh_database_has_defaults_and_configured_endpoint(self):
         initial = [("tasks", "0001_initial")]
+        latest = MigrationExecutor(connection).loader.graph.leaf_nodes()
         try:
             MigrationExecutor(connection).migrate([("tasks", None)])
             with override_settings(ACP_PORT="4312"):
@@ -40,4 +42,4 @@ class InitialMigrationTests(TransactionTestCase):
             self.assertEqual((endpoint.host, endpoint.port, endpoint.enabled), ("127.0.0.1", 4312, True))
         finally:
             MigrationExecutor(connection).migrate([("tasks", None)])
-            MigrationExecutor(connection).migrate(initial)
+            MigrationExecutor(connection).migrate(latest)

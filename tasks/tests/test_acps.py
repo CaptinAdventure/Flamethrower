@@ -4,7 +4,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 from django.utils import timezone
 from django.urls import reverse
@@ -75,26 +74,31 @@ class AcpEndpointTests(TestCase):
 
     def test_auto_selection_uses_priority_then_falls_back_to_next_free(self):
         self.first.priority = 2
-        self.first.save(update_fields=["priority"])
+        self.first.session_limit = 1
+        self.first.save(update_fields=["priority", "session_limit"])
         self.second.priority = 1
-        self.second.save(update_fields=["priority"])
-        task = self.task()
+        self.second.session_limit = 1
+        self.second.save(update_fields=["priority", "session_limit"])
 
-        first_run = self.create_run_for_task(task)
-        second_run = self.create_run_for_task(task)
+        first_run = self.create_run_for_task(self.task())
+        second_run = self.create_run_for_task(self.task())
         self.assertEqual(first_run.acp_endpoint, self.second)
         self.assertEqual(second_run.acp_endpoint, self.first)
         with self.assertRaisesMessage(AcpUnavailable, "No enabled ACP is currently available"):
-            self.create_run_for_task(task)
+            self.create_run_for_task(self.task())
 
 
     def test_explicit_selection_rejects_disabled_or_busy_without_fallback(self):
+        self.first.session_limit = 1
+        self.first.save(update_fields=["session_limit"])
         task = self.task(
             acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.first,
         )
         self.create_run_for_task(task)
         with self.assertRaisesMessage(AcpUnavailable, "selected ACP is busy"):
-            self.create_run_for_task(task)
+            self.create_run_for_task(self.task(
+                acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.first,
+            ))
 
         AgentRun.objects.filter(acp_endpoint=self.first).update(status=AgentRun.Status.COMPLETED)
         self.first.enabled = False
@@ -123,24 +127,17 @@ class AcpEndpointTests(TestCase):
         self.assertIsNotNone(self.first.last_success_at)
         self.assertEqual(self.create_run_for_task(task).acp_endpoint, self.first)
 
-    def test_distinct_endpoints_can_run_concurrently_and_database_rejects_duplicate_claim(self):
+    def test_distinct_endpoints_can_run_concurrently(self):
         first_task = self.task()
         first_run = self.create_run_for_task(first_task)
         second_task = self.task(acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.second)
         second_run = self.create_run_for_task(second_task)
         self.assertNotEqual(first_run.acp_endpoint_id, second_run.acp_endpoint_id)
 
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            AgentRun.objects.create(
-                task=first_task, acp_endpoint=self.first, stage=Task.Stage.DEVELOPER,
-                task_version=0, request_snapshot="r", plan_snapshot="p",
-                status=AgentRun.Status.STARTING,
-            )
-
     def test_endpoint_form_rejects_non_loopback_and_invalid_ports(self):
         for values in (
-            {"name": "Bad host", "host": "192.0.2.1", "port": 64003, "priority": 1, "enabled": True},
-            {"name": "Bad port", "host": "127.0.0.1", "port": 65536, "priority": 1, "enabled": True},
+            {"name": "Bad host", "host": "192.0.2.1", "port": 64003, "priority": 1, "session_limit": 5, "enabled": True},
+            {"name": "Bad port", "host": "127.0.0.1", "port": 65536, "priority": 1, "session_limit": 5, "enabled": True},
         ):
             with self.subTest(values=values):
                 self.assertFalse(AcpEndpointForm(values).is_valid())

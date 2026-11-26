@@ -22,13 +22,16 @@ jobs:
       - name: Run backend tests
         run: |
           python manage.py test \
+            tasks.tests.test_acp_capacity \
             tasks.tests.test_deferred \
             tasks.tests.test_initial_migration \
             tasks.tests.test_mcp.McpApiTests \
             tasks.tests.test_mcp.McpClientTests \
+            tasks.tests.test_mcp.McpConfigurationTests \
             tasks.tests.test_mcp.McpStdioIntegrationTests.test_direct_script_initializes_from_another_directory \
             tasks.tests.test_questions.MarkerParsingTests \
             tasks.tests.test_quick_task.TitleGenerationTests \
+            tasks.tests.test_request_editor \
             tasks.tests.test_usage \
             tasks.tests.test_automation.AutomationTests.test_passing_testing_recommendation_advances_and_starts_review \
             tasks.tests.test_automation.AutomationTests.test_failed_gate_rework_pauses_for_human_decision \

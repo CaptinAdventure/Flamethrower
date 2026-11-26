@@ -1,5 +1,5 @@
 <section class="card">
     <h2>Task is blocked</h2>
-    <p>Another task is {{ blocking_run.get_status_display }}:
+    <p>The available ACP session capacity is in use. A reserved run is {{ blocking_run.get_status_display }}:
         <a href="{% url 'task_detail' blocking_run.task_id %}#next-action">{{ blocking_run.task.title }}</a>.</p>
 </section>

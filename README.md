@@ -22,12 +22,14 @@ at **ACPs** in the application: add, edit, enable/disable, prioritize, or
 delete them at runtime. Hosts must be loopback IP addresses or `localhost`;
 ports must be 1–65535. Endpoint CRUD is available to any local web user because
 the application has no end-user login.
-Tasks default to **Automatic — highest-priority free ACP**; the lowest numeric
+Tasks default to **Automatic — highest-priority available ACP**; the lowest numeric
 priority is preferred, with endpoint ID as a deterministic tie-breaker. Edit a
-task to select a specific enabled ACP instead. An endpoint runs at most one
-task at a time; active and unacknowledged interrupted runs reserve that
-endpoint, while other endpoints remain usable. Automatic endpoint selection
-chooses again for every new run. ACP status is derived from run history and the last
+task to select a specific enabled ACP instead. Each endpoint allows five
+concurrent sessions by default; change its session limit to match the server's
+capabilities. Active and unacknowledged interrupted runs count toward the limit.
+Reducing the limit does not stop existing runs. Automatic endpoint selection
+chooses again for every new run. Concurrent agents can modify the same project files.
+ACP status is derived from run history and the last
 successful/failed ACP initialization; use **Check connection** on the endpoint
 list to refresh it. The endpoint list links busy endpoints to their run and task.
 Approve the request, then generate or enter and approve a plan. The workflow

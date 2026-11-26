@@ -22,6 +22,10 @@ class TaskTitleForm(forms.Form):
     title = forms.CharField(max_length=200)
 
 
+class TaskRequestForm(forms.Form):
+    request = forms.CharField(widget=forms.Textarea)
+
+
 def persist_task_content(
     task_id, original, values, version, stage_version, *,
     acp_selection=None, selected_acp_endpoint=None, update_acp=False,
@@ -260,6 +264,38 @@ def update_task_title(request, task_id):
 
     return JsonResponse({
         "title": task.title,
+        "version": task.version,
+        "stage_version": task.stage_version,
+    })
+
+
+@require_POST
+def update_task_request(request, task_id):
+    request_form = TaskRequestForm(request.POST)
+    version_form = StageForm(request.POST)
+    if not request_form.is_valid() or not version_form.is_valid():
+        errors = {}
+        if request_form.errors:
+            errors.update(request_form.errors.get_json_data())
+        if version_form.errors:
+            errors.update(version_form.errors.get_json_data())
+        return JsonResponse({"errors": errors}, status=400)
+
+    version = version_form.cleaned_data["version"]
+    stage_version = version_form.cleaned_data["stage_version"]
+    with transaction.atomic():
+        task = get_object_or_404(Task.objects.select_for_update(), pk=task_id)
+        if task.runs.filter(status__in=AgentRun.ACTIVE).exists():
+            return JsonResponse({"error": "Cannot edit a task while its agent is running."}, status=409)
+        if task.version != version or task.stage_version != stage_version:
+            return JsonResponse({"error": "This task changed in another view. Reload before editing."}, status=409)
+        values = {"title": task.title, "request": request_form.cleaned_data["request"], "plan": task.plan}
+        if not persist_task_content(task_id, task, values, version, stage_version):
+            return JsonResponse({"error": "This task changed in another view. Reload before editing."}, status=409)
+        task.refresh_from_db()
+
+    return JsonResponse({
+        "request": task.request,
         "version": task.version,
         "stage_version": task.stage_version,
     })

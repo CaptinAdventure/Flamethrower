@@ -1,12 +1,18 @@
+import json
 import logging
+import os
+import sys
 from decimal import Decimal
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib import messages
 from django.db import IntegrityError, transaction
 from django.db.models import F
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from ..acp import RESERVED_RUN_STATUSES, check_endpoint_connection, endpoint_status
 from ..forms import AcpEndpointForm, SafeReadPathsForm
@@ -17,22 +23,53 @@ from .usage import format_cost_amount
 logger = logging.getLogger(__name__)
 
 
+@require_safe
+def agent_mcp_configuration(request):
+    executable = Path(sys.executable)
+    if not executable.is_absolute():
+        return HttpResponse(
+            "Cannot determine the Python environment running Flamethrower.\n",
+            content_type="text/plain; charset=utf-8", status=503,
+        )
+    command = executable.parent / ("flamethrower-mcp.exe" if os.name == "nt" else "flamethrower-mcp")
+    if not command.is_file() or not os.access(command, os.X_OK):
+        return HttpResponse(
+            f"MCP executable not found or not executable: {command}\n"
+            "Install Flamethrower in the Python environment running this server and restart it.\n",
+            content_type="text/plain; charset=utf-8", status=503,
+        )
+    config = {
+        "mcpServers": {
+            "flamethrower": {
+                "type": "local",
+                "command": str(command),
+                "args": [str(settings.PROJECT_PATH)],
+            },
+        },
+    }
+    return HttpResponse(
+        "Restart after saving; keep Flamethrower running.\n\n"
+        + json.dumps(config, indent=2, ensure_ascii=False) + "\n",
+        content_type="text/plain; charset=utf-8",
+    )
+
+
 def acp_list(request, safe_read_paths_form=None):
     repository_settings = RepositorySettings.objects.get(pk=1)
     endpoints = list(AcpEndpoint.objects.all())
     runs = AgentRun.objects.filter(
         acp_endpoint__in=endpoints, status__in=RESERVED_RUN_STATUSES,
     ).select_related("task").order_by("-id")
-    current_runs = {}
+    current_runs = {endpoint.pk: [] for endpoint in endpoints}
     for run in runs:
-        current_runs.setdefault(run.acp_endpoint_id, run)
+        current_runs[run.acp_endpoint_id].append(run)
     rows = []
     for endpoint in endpoints:
-        run = current_runs.get(endpoint.pk)
+        reserved_runs = current_runs[endpoint.pk]
         rows.append({
             "endpoint": endpoint,
-            "run": run,
-            "status": endpoint_status(endpoint, run),
+            "runs": reserved_runs,
+            "status": endpoint_status(endpoint, len(reserved_runs)),
         })
     usage_now = timezone.localtime(timezone.now())
     usage_period_start = usage_now.replace(

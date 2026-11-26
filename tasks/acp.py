@@ -1,8 +1,11 @@
 import asyncio
+import sqlite3
+from collections import Counter
 
 import acp
 from acp.interfaces import Client
-from django.db import IntegrityError, transaction
+from django.db import OperationalError, connection, transaction
+from django.db.models import Count, F
 from django.utils import timezone
 
 from .models import AcpEndpoint, AgentRun, Task
@@ -17,57 +20,60 @@ RESERVED_RUN_STATUSES = (*AgentRun.ACTIVE, AgentRun.Status.INTERRUPTED)
 
 def create_run(task, **values):
     """Choose and claim an endpoint in the same transaction that creates its run."""
-    with transaction.atomic():
-        if task.acp_selection == Task.AcpSelection.EXPLICIT:
-            if not task.selected_acp_endpoint_id:
-                raise AcpUnavailable("Select an ACP endpoint before starting this task.")
-            endpoints = list(AcpEndpoint.objects.select_for_update().filter(
-                pk=task.selected_acp_endpoint_id,
-            ))
-            if not endpoints or not endpoints[0].enabled:
-                raise AcpUnavailable("The selected ACP is disabled or no longer exists.")
-        else:
-            enabled = AcpEndpoint.objects.select_for_update().filter(enabled=True)
-            endpoints = list(enabled.filter(last_error="").order_by("priority", "id"))
-        if not endpoints:
+    try:
+        with transaction.atomic():
+            Task.objects.select_for_update().get(pk=task.pk)
             if task.acp_selection == Task.AcpSelection.EXPLICIT:
+                if not task.selected_acp_endpoint_id:
+                    raise AcpUnavailable("Select an ACP endpoint before starting this task.")
+                endpoints = list(AcpEndpoint.objects.select_for_update().filter(
+                    pk=task.selected_acp_endpoint_id,
+                ))
+                if not endpoints or not endpoints[0].enabled:
+                    raise AcpUnavailable("The selected ACP is disabled or no longer exists.")
+            else:
+                enabled = AcpEndpoint.objects.select_for_update().filter(enabled=True)
+                endpoints = list(enabled.filter(last_error="").order_by("priority", "id"))
+            if not endpoints:
+                if AcpEndpoint.objects.filter(enabled=True).exists():
+                    raise AcpUnavailable("No enabled ACP is currently available.")
                 raise AcpUnavailable("No enabled ACP is configured.")
-            if AcpEndpoint.objects.filter(enabled=True).exists():
-                raise AcpUnavailable("No enabled ACP is currently available.")
-            raise AcpUnavailable("No enabled ACP is configured.")
-        if (
-            task.acp_selection == Task.AcpSelection.EXPLICIT
-            and endpoints[0].last_error
-        ):
-            raise AcpUnavailable("The selected ACP is unavailable. Check its connection before starting a run.")
+            if task.acp_selection == Task.AcpSelection.EXPLICIT and endpoints[0].last_error:
+                raise AcpUnavailable("The selected ACP is unavailable. Check its connection before starting a run.")
 
-        reserved_ids = set(AgentRun.objects.filter(
-            acp_endpoint__in=endpoints, status__in=RESERVED_RUN_STATUSES,
-        ).values_list("acp_endpoint_id", flat=True))
-        available = [endpoint for endpoint in endpoints if endpoint.pk not in reserved_ids]
-        if not available:
+            if connection.vendor == "sqlite":
+                # SQLite ignores select_for_update; acquire its write lock before counting reservations.
+                AcpEndpoint.objects.filter(pk__in=[endpoint.pk for endpoint in endpoints]).update(priority=F("priority"))
+            if task.runs.filter(status__in=RESERVED_RUN_STATUSES).exists():
+                raise AcpUnavailable("This task already has an active run or an interruption awaiting acknowledgement.")
+            counts = dict(AgentRun.objects.filter(
+                acp_endpoint__in=endpoints, status__in=RESERVED_RUN_STATUSES,
+            ).values("acp_endpoint_id").annotate(total=Count("id")).values_list("acp_endpoint_id", "total"))
+            for endpoint in endpoints:
+                if counts.get(endpoint.pk, 0) < endpoint.session_limit:
+                    return AgentRun.objects.create(acp_endpoint=endpoint, task=task, **values)
             if task.acp_selection == Task.AcpSelection.EXPLICIT:
                 raise AcpUnavailable("The selected ACP is busy or has an interruption awaiting acknowledgement.")
             raise AcpUnavailable("No enabled ACP is currently available.")
-
-        for endpoint in available:
-            try:
-                with transaction.atomic():
-                    return AgentRun.objects.create(acp_endpoint=endpoint, task=task, **values)
-            except IntegrityError:
-                if task.acp_selection == Task.AcpSelection.EXPLICIT:
-                    raise AcpUnavailable("The selected ACP became busy before the run could start.")
-        raise AcpUnavailable("No enabled ACP is currently available.")
+    except OperationalError as error:
+        cause = error.__cause__
+        code = getattr(cause, "sqlite_errorcode", None)
+        if (
+            connection.vendor == "sqlite" and code is not None
+            and code & 0xFF in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+        ):
+            raise AcpUnavailable("The database is busy while reserving an ACP session. Retry the run.") from error
+        raise
 
 
 def endpoint_reserved_runs():
     return AgentRun.objects.filter(status__in=RESERVED_RUN_STATUSES)
 
 
-def endpoint_status(endpoint, reserved_run=None):
+def endpoint_status(endpoint, reserved_count=0):
     if not endpoint.enabled:
         return "Disabled"
-    if reserved_run:
+    if reserved_count >= endpoint.session_limit:
         return "Busy"
     if endpoint.last_error:
         return "Unavailable"
@@ -92,17 +98,21 @@ def task_acp_state(task):
                 "busy": False, "blocking_run": None, "acp_issue": "No ACP is selected.",
                 "acp_selection_label": "No ACP selected",
             }
-        run = endpoint_reserved_runs().filter(acp_endpoint=endpoint).select_related("task").first()
+        runs = list(endpoint_reserved_runs().filter(acp_endpoint=endpoint).select_related("task").order_by("id"))
+        full = len(runs) >= endpoint.session_limit
+        run = None
+        if full:
+            run = next((item for item in runs if item.status in AgentRun.ACTIVE), runs[0])
         if not endpoint.enabled:
             issue = "The selected ACP is disabled."
         elif endpoint.last_error:
             issue = "The selected ACP is unavailable. Check its connection before starting a run."
-        elif run:
+        elif full:
             issue = "The selected ACP is busy or has an interruption awaiting acknowledgement."
         else:
             issue = ""
         return {
-            "busy": bool(run), "blocking_run": run, "acp_issue": issue,
+            "busy": full, "blocking_run": run, "acp_issue": issue,
             "acp_selection_label": f"{endpoint.name} ({endpoint.address})",
         }
 
@@ -115,18 +125,19 @@ def task_acp_state(task):
         )
         return {
             "busy": False, "blocking_run": None, "acp_issue": issue,
-            "acp_selection_label": "Automatic — highest-priority free ACP",
+            "acp_selection_label": "Automatic — highest-priority available ACP",
         }
     runs = list(
         endpoint_reserved_runs().filter(acp_endpoint__in=endpoints).select_related("task").order_by("id")
     )
-    run_by_endpoint = {run.acp_endpoint_id: run for run in runs}
-    free = [endpoint for endpoint in endpoints if endpoint.pk not in run_by_endpoint]
+    counts = Counter(run.acp_endpoint_id for run in runs)
+    free = [endpoint for endpoint in endpoints if counts[endpoint.pk] < endpoint.session_limit]
+    blocking_run = next((run for run in runs if run.status in AgentRun.ACTIVE), runs[0] if runs else None)
     return {
         "busy": not free,
-        "blocking_run": runs[0] if not free and runs else None,
+        "blocking_run": blocking_run if not free else None,
         "acp_issue": "" if free else "No enabled ACP is currently available.",
-        "acp_selection_label": "Automatic — highest-priority free ACP",
+        "acp_selection_label": "Automatic — highest-priority available ACP",
     }
 
 

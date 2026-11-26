@@ -24,7 +24,7 @@
 
   function isInUse(element) {
     return element.contains(document.activeElement) ||
-      element.querySelector("[data-title-editor][data-title-editing='true'], [data-title-editor][data-title-saving='true']") ||
+      element.querySelector("[data-title-editor][data-title-editing='true'], [data-title-editor][data-title-saving='true'], [data-request-editor][data-request-editing='true'], [data-request-editor][data-request-saving='true']") ||
       element.querySelector("details[open], [data-action-editor]:not([hidden]), [data-link-error]") ||
       hasSelection(element);
   }
@@ -78,7 +78,7 @@
     contentVersion++;
     if (document.querySelector('[data-active="true"]')) startPolling();
   });
-  for (const eventName of ["flamethrower:title-save-start", "flamethrower:title-save-end"]) {
+  for (const eventName of ["flamethrower:title-save-start", "flamethrower:title-save-end", "flamethrower:request-save-start", "flamethrower:request-save-end"]) {
     document.addEventListener(eventName, () => {
       contentVersion++;
     });

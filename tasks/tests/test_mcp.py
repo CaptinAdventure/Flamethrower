@@ -30,6 +30,34 @@ EXPECTED_TOOLS = {
 }
 
 
+class McpConfigurationTests(SimpleTestCase):
+    def test_plain_text_configuration_uses_running_environment_and_project(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            scripts = Path(temporary)
+            command = scripts / ("flamethrower-mcp.exe" if os.name == "nt" else "flamethrower-mcp")
+            command.touch(mode=0o755)
+            project = scripts / 'project "with spaces" \u00e9'
+            with override_settings(PROJECT_PATH=project), patch("tasks.views.acps.sys.executable", str(scripts / "python")):
+                response = self.client.get(reverse("agent_mcp_configuration"))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response["Content-Type"], "text/plain; charset=utf-8")
+            instructions, config = response.content.decode().split("\n\n", 1)
+            self.assertIn("~/.copilot/mcp-config.json", instructions)
+            self.assertIn("merging", instructions)
+            self.assertEqual(json.loads(config), {
+                "mcpServers": {"flamethrower": {
+                    "type": "local", "command": str(command), "args": [str(project)],
+                }},
+            })
+
+    def test_missing_executable_is_reported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch("tasks.views.acps.sys.executable", str(Path(temporary) / "python")):
+                response = self.client.get(reverse("agent_mcp_configuration"))
+        self.assertEqual(response.status_code, 503)
+        self.assertIn(b"MCP executable not found", response.content)
+
+
 @override_settings(LOCAL_API_TOKEN=TOKEN)
 class McpApiTests(TestCase):
     def setUp(self):

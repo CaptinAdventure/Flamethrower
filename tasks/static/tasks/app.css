@@ -135,6 +135,10 @@ a { color: var(--link); }
 .task-title-status { min-height: 1.2em; margin: .25rem 0 0; font-size: .85rem; }
 .task-title-status:empty { display: none; }
 .title-edit-error { color: var(--error); }
+.task-request-display { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: text; }
+.task-request-display[hidden], .task-request-editor[hidden] { display: none; }
+.task-request-display:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: .15rem; }
+.task-request-editor textarea { min-height: 12rem; resize: vertical; }
 .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(250px, 1fr); gap: 1.2rem; }
 .card > .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 2fr); gap: 0; margin: -1.25rem; }
 .card > h2:first-of-type + .grid { margin-top: -1rem; }

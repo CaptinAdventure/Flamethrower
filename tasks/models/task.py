@@ -7,7 +7,7 @@ from .work_type import default_work_type_id
 
 class Task(models.Model):
     class AcpSelection(models.TextChoices):
-        AUTO = "auto", "Automatic — highest-priority free ACP"
+        AUTO = "auto", "Automatic — highest-priority available ACP"
         EXPLICIT = "explicit", "Use selected ACP"
 
     class Status(models.TextChoices):

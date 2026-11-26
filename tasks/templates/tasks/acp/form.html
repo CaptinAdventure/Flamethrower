@@ -5,6 +5,7 @@
 <section class="card">
   <h1>{% if creating %}Add ACP endpoint{% else %}Edit {{ endpoint.name }}{% endif %}</h1>
   <p>Only loopback IP addresses and <code>localhost</code> are accepted. ACP servers are trusted and are not sandboxed.</p>
+  <p>The session limit includes runs waiting for input and unacknowledged interruptions. Lowering it does not stop existing runs.</p>
   <form method="post">
     {% csrf_token %}
     {{ form.non_field_errors }}

@@ -122,6 +122,10 @@
       display.textContent = result.title;
       form.querySelector("[data-title-version]").value = result.version;
       form.querySelector("[data-title-stage-version]").value = result.stage_version;
+      for (const editor of document.querySelectorAll("[data-request-editor]")) {
+        editor.querySelector('input[name="version"]').value = result.version;
+        editor.querySelector('input[name="stage_version"]').value = result.stage_version;
+      }
       document.title = `${result.title}${form.dataset.titleSuffix}`;
       const restoreFocus = form.contains(document.activeElement);
       finishEditing(form, { focusDisplay: restoreFocus, message: "Title saved." });
