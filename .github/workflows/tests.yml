@@ -1,0 +1,47 @@
+name: Backend tests
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+      - name: Run backend tests
+        run: |
+          python manage.py test \
+            tasks.tests.test_deferred \
+            tasks.tests.test_initial_migration \
+            tasks.tests.test_mcp.McpApiTests \
+            tasks.tests.test_mcp.McpClientTests \
+            tasks.tests.test_mcp.McpStdioIntegrationTests.test_direct_script_initializes_from_another_directory \
+            tasks.tests.test_questions.MarkerParsingTests \
+            tasks.tests.test_quick_task.TitleGenerationTests \
+            tasks.tests.test_usage \
+            tasks.tests.test_automation.AutomationTests.test_passing_testing_recommendation_advances_and_starts_review \
+            tasks.tests.test_automation.AutomationTests.test_failed_gate_rework_pauses_for_human_decision \
+            tasks.tests.test_automation.AutomationTests.test_unverified_gate_rework_pauses_for_human_decision \
+            tasks.tests.test_automation.AutomationTests.test_duplicate_completion_callback_does_not_pause_advanced_workflow \
+            tasks.tests.test_automation.AutomationTests.test_invalid_gate_report_pauses_without_inventing_a_result \
+            tasks.tests.test_automation.AutomationTests.test_review_pass_automatically_finishes_task \
+            tasks.tests.test_automation.AutomationTests.test_pauses_on_third_return_to_testing \
+            tasks.tests.test_similarity.SimilarityTests.test_worker_claims_and_indexes_pending_task \
+            tasks.tests.test_similarity.SimilarityTests.test_recovery_requeues_interrupted_tasks \
+            tasks.tests.test_similarity.SimilarityTests.test_stale_worker_result_is_discarded \
+            tasks.tests.test_similarity.SimilarityTests.test_ranking_threshold_and_limit_and_existing_links \
+            tasks.tests.test_similarity.SimilarityTests.test_work_type_suggestion_uses_descriptions_and_reuses_vectors \
+            tasks.tests.test_similarity.SimilarityTests.test_changed_type_invalidates_and_recomputes_suggestion \
+            tasks.tests.test_similarity.SimilarityTests.test_reindexing_invalidates_existing_work_type_suggestion \
+            tasks.tests.test_similarity.SimilarityTests.test_work_type_suggestion_discards_changed_task_and_type
