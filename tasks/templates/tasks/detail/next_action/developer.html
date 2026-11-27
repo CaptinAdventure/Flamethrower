@@ -1,6 +1,8 @@
 {% if task.rework_note %}
-    <p><strong>Rework context:</strong></p>
-    <div class="content">{{ task.rework_note }}</div>
+    <section class="card">
+        <h2><strong>Rework context:</strong></h2>
+        <div class="content">{{ task.rework_note }}</div>
+    </section>
 {% endif %}
 
 {% if not manual_workflow_actions_available %}

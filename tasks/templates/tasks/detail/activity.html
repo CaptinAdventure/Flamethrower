@@ -72,6 +72,11 @@
                 <span class="card-extra">Recorded <time datetime="{{ event.created_at|utc|date:'c' }}">{{ event.created_at|utc|date:"Y-m-d H:i:s" }} UTC</time></span>
             </h2>
             <div class="markdown">{{ event.content|render_markdown }}</div>
+        {% elif event.kind == "thought" %}
+            <details>
+                <summary>Agent thinking · Recorded <time datetime="{{ event.created_at|utc|date:'c' }}">{{ event.created_at|utc|date:"Y-m-d H:i:s" }} UTC</time></summary>
+                <div class="markdown">{{ event.content|render_markdown }}</div>
+            </details>
         {% elif event.summary %}
             {% include "tasks/components/tool_call.html" with tool_summary=event.summary tool_details=event.content only %}
             {% if event.kind == "permission decision" %}

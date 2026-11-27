@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from acp.schema import AgentThoughtChunk
+from asgiref.sync import async_to_sync
 from django.test import TestCase
 from django.urls import reverse
 
@@ -104,3 +106,26 @@ class RunActivityPageTests(TestCase):
         after = content.index("<em>After</em>")
         self.assertLess(before, tool)
         self.assertLess(tool, after)
+
+    def test_acp_thought_updates_are_persisted_and_visible_in_activity(self):
+        from ..agent import RunClient
+
+        client = RunClient(self.run.pk)
+        for content in (
+            {"type": "text", "text": "First **thought**"},
+            {"type": "text", "text": " continued."},
+            {"type": "image", "mimeType": "image/png", "data": "aGVsbG8="},
+        ):
+            update = AgentThoughtChunk.model_validate({"sessionUpdate": "agent_thought_chunk", "content": content})
+            async_to_sync(client.session_update)("session-identifier", update)
+        thoughts = list(self.run.events.filter(kind__startswith="thought").values_list("kind", "content"))
+        self.assertEqual(thoughts[:2], [("thought", "First **thought**"), ("thought", " continued.")])
+        self.assertEqual(thoughts[2][0], "thought content")
+        self.assertIn('"data": "aGVsbG8="', thoughts[2][1])
+        events = format_activity(list(self.run.events.all()))
+        self.assertEqual(events[1]["content"], "First **thought** continued.")
+        page = self.client.get(self.activity_url)
+        self.assertContains(page, "Agent thinking")
+        self.assertContains(page, "First <strong>thought</strong> continued.")
+        self.assertContains(page, "Agent thinking attachment")
+        self.assertContains(page, "image/png")

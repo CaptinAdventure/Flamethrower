@@ -1,5 +1,5 @@
 {% extends "tasks/base.html" %}
-{% load static %}
+{% load static markdown_rendering %}
 {% block title %}Project run #{{ run.id }} · Flamethrower{% endblock %}
 {% block content %}
     <h1>Project inquiry #{{ run.id }}</h1>
@@ -38,6 +38,13 @@
                         {% endif %}
                     </div>
                 {% endfor %}
+            </section>
+        {% endif %}
+        {% if answer %}
+            <section class="card" id="project-answer">
+                <h2>Agent answer</h2>
+                <p class="muted">Not independently verified.</p>
+                <div class="markdown">{{ answer|render_markdown }}</div>
             </section>
         {% endif %}
         {% include "tasks/detail/activity.html" %}

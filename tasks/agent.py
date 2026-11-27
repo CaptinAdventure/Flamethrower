@@ -381,6 +381,12 @@ class RunClient(Client):
             await record_usage_update(self.run_id, data)
         elif kind == "agent_message_chunk" and data.get("content", {}).get("type") == "text":
             await save_event(self.run_id, "message", data["content"]["text"])
+        elif kind == "agent_thought_chunk":
+            content = data["content"]
+            if content.get("type") == "text":
+                await save_event(self.run_id, "thought", content["text"])
+            else:
+                await save_event(self.run_id, "thought content", json.dumps(content, indent=2, ensure_ascii=False))
         elif kind in ("tool_call", "tool_call_update"):
             tool_call_id = data.get("toolCallId")
             if tool_call_id:

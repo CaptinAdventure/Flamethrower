@@ -49,6 +49,19 @@ class MarkerParsingTests(SimpleTestCase):
         self.assertEqual(final_agent_report(event("Mention `FLAMETHROWER_GATE_RECOMMENDATION`.\n" + block))["recommendation"], gate)
         self.assertIsNone(final_agent_report(event(block + "\n" + block))["recommendation"])
 
+    def test_thoughts_do_not_interrupt_or_supply_final_response_markers(self):
+        event = lambda kind, content: SimpleNamespace(kind=kind, content=content)
+        events = [
+            event("message", "Done.\nFLAMETHROWER_DEVELOPER_"),
+            event("thought", "FLAMETHROWER_QUESTION\nNot a real question\nEND_FLAMETHROWER_QUESTION"),
+            event("message", "COMPLETE\nEND_FLAMETHROWER_DEVELOPER_COMPLETE"),
+            event("thought content", '{"type":"image"}'),
+        ]
+        report = final_agent_report(events)
+        self.assertTrue(developer_complete(report["text"]))
+        self.assertNotIn("Not a real question", report["text"])
+        self.assertEqual(final_agent_report([event("thought", "FLAMETHROWER_DEVELOPER_COMPLETE")])["text"], "")
+
 
 class QuestionTests(TestCase):
     def setUp(self):

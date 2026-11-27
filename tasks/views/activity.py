@@ -4,6 +4,8 @@ from ..mcp_permissions import reported_mcp_tool
 
 ACTIVITY_HEADINGS = {
     "message": "Message",
+    "thought": "Agent thinking",
+    "thought content": "Agent thinking attachment",
     "tool": "Tool activity",
     "permission decision": "Permission decision",
 }
@@ -100,7 +102,7 @@ def format_activity(events):
     formatted = []
     tool_calls = {}
     for event in events:
-        if event.kind == "message" and formatted and formatted[-1]["kind"] == "message":
+        if event.kind in ("message", "thought") and formatted and formatted[-1]["kind"] == event.kind:
             formatted[-1]["content"] += event.content
             continue
         item = {

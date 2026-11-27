@@ -102,7 +102,10 @@ Developer run.
 
 Session activity has its own page with the shared task header, run history,
 input snapshots, and live updates. Open it from a task's session link or run
-history. Approvals, permissions, and run controls stay on the task page.
+history. Agent thinking updates supplied by ACP are retained in run activity;
+they can contain sensitive data. Earlier discarded updates cannot be recovered,
+and an ACP may not provide thinking. Approvals, permissions, and run controls
+stay on the task page.
 
 Tasks have incrementing numeric IDs, severity (Blocker, Critical, Major, Minor or
 Trivial; default Major), a status, and a per-stage priority. Drag cards up or

@@ -10,7 +10,7 @@ from ..acp import create_project_run, create_run
 from ..agent import run_agent, save_event
 from ..agent_scheduler import claim_next_recovery, claim_next_run, recover_interrupted_runs
 from ..architect_tasks import handle_task_block
-from ..models import ACPUsageSnapshot, AcpEndpoint, AgentLinkProposal, AgentQuestion, AgentRun, LinkType, PermissionRequest, Task, TaskLink
+from ..models import ACPUsageSnapshot, AcpEndpoint, AgentLinkProposal, AgentQuestion, AgentRun, LinkType, PermissionRequest, RunEvent, Task, TaskLink
 from ..questions import TEXT_SCHEMA, answer_question, create_question
 
 
@@ -149,6 +149,36 @@ class ProjectRunTests(TestCase):
         self.assertRedirects(response, reverse("project_run_detail", args=[run.pk]))
         permission.refresh_from_db()
         self.assertTrue(permission.resolved)
+
+    def test_completed_answer_appears_before_status_even_after_later_events(self):
+        run = create_project_run("Question")
+        run.status = AgentRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        RunEvent.objects.create(run=run, kind="message", content="Earlier response")
+        RunEvent.objects.create(run=run, kind="tool", content="Tool activity")
+        RunEvent.objects.create(run=run, kind="message", content="Context before the answer.\nFLAMETHROWER_PROJECT_")
+        RunEvent.objects.create(run=run, kind="thought", content="Thinking between response chunks.")
+        RunEvent.objects.create(run=run, kind="message", content="ANSWER\n**Final answer**\nEND_FLAMETHROWER_PROJECT_ANSWER")
+        RunEvent.objects.create(run=run, kind="human link decision", content="Approved")
+
+        response = self.client.get(reverse("project_run_detail", args=[run.pk]))
+        self.assertEqual(response.context["answer"], "Context before the answer.\n\n**Final answer**")
+        html = response.content.decode()
+        self.assertLess(html.index('id="project-answer"'), html.index('id="run-activity"'))
+        self.assertIn("<strong>Final answer</strong>", html)
+        self.assertContains(response, "Thinking between response chunks.")
+
+    def test_unfinished_or_unrecognized_messages_are_not_presented_as_final(self):
+        run = create_project_run("Question")
+        RunEvent.objects.create(
+            run=run, kind="message", content="FLAMETHROWER_PROJECT_ANSWER\nOld answer\nEND_FLAMETHROWER_PROJECT_ANSWER",
+        )
+        self.assertNotContains(self.client.get(reverse("project_run_detail", args=[run.pk])), 'id="project-answer"')
+        run.status = AgentRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        RunEvent.objects.create(run=run, kind="tool", content="A later tool")
+        RunEvent.objects.create(run=run, kind="message", content="An incomplete final message")
+        self.assertNotContains(self.client.get(reverse("project_run_detail", args=[run.pk])), 'id="project-answer"')
 
 
 class ProjectRunProtocolTests(TransactionTestCase):

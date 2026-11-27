@@ -61,6 +61,8 @@ def project_answer(text):
 def final_agent_report(events):
     chunks = []
     for event in reversed(events):
+        if event.kind in ("thought", "thought content"):
+            continue
         if event.kind != "message":
             break
         chunks.append(event.content)

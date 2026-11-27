@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from ..acp import AcpUnavailable, create_project_run
 from ..agent_scheduler import wake_scheduler
 from ..models import AcpEndpoint, AgentLinkProposal, AgentRun, LinkType, RunEvent, Task, TaskLink
+from ..recommendations import final_agent_report, project_answer
 from .activity import format_activity
 from .detail import run_attention_context
 from .usage import format_cost_amount
@@ -50,10 +51,23 @@ def project_run_detail(request, run_id, *, question_form=None, question_form_que
         pk=run_id, stage=AgentRun.PROJECT, task__isnull=True,
     )
     usage = getattr(run, "usage_snapshot", None)
+    events = list(run.events.all())
+    answer = ""
+    if run.status == AgentRun.Status.COMPLETED:
+        last_message = next((index for index in range(len(events) - 1, -1, -1) if events[index].kind == "message"), None)
+        if last_message is not None:
+            text = final_agent_report(events[:last_message + 1])["text"]
+            answer = project_answer(text)
+            if answer:
+                lines = text.splitlines()
+                prefix = "\n".join(lines[:lines.index("FLAMETHROWER_PROJECT_ANSWER")]).strip()
+                if prefix:
+                    answer = f"{prefix}\n\n{answer}"
     return render(request, "tasks/project_run_detail.html", {
         "run": run, "current_run": run,
         "usage": usage, "usage_cost": format_cost_amount(usage.cost_amount) if usage else None,
-        "events": format_activity(list(run.events.all())),
+        "events": format_activity(events),
+        "answer": answer,
         "proposals": run.link_proposals.select_related("source", "target", "link_type"),
         "should_poll": run.status in AgentRun.ACTIVE,
         **run_attention_context(run, question_form, question_form_question_id),
