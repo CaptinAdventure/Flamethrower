@@ -1,0 +1,47 @@
+{% extends "tasks/base.html" %}
+{% load static %}
+{% block title %}Project run #{{ run.id }} · Flamethrower{% endblock %}
+{% block content %}
+    <h1>Project inquiry #{{ run.id }}</h1>
+    <p><a href="{% url 'project_runs' %}">Back to project inquiries</a></p>
+    <p id="live-status" role="status" class="muted"></p>
+    <div id="session-activity-page" data-active="{% if should_poll %}true{% else %}false{% endif %}">
+        {% if run.status == "interrupted" %}
+            <section class="card"><p>The run was interrupted; inspect the agent and project before acknowledging it.</p>
+                <form method="post" action="{% url 'acknowledge_run' run.id %}">{% csrf_token %}<button type="submit">Acknowledge interruption</button></form>
+            </section>
+        {% elif should_poll %}
+            <section class="card">
+                {% include "tasks/detail/next_action/run.html" %}
+                {% if not run.cancel_requested %}
+                    <form method="post" action="{% url 'cancel_run' run.id %}">{% csrf_token %}<button type="submit" class="secondary">Cancel run</button></form>
+                {% endif %}
+            </section>
+        {% endif %}
+        {% if proposals %}
+            <section class="card">
+                <h2>Proposed task links</h2>
+                <p>Links are not created until you approve them.</p>
+                {% for proposal in proposals %}
+                    <div class="field">
+                        <p><a href="{% url 'task_detail' proposal.source_id %}">#{{ proposal.source_id }} {{ proposal.source.title }}</a>
+                            {{ proposal.outward_description }}
+                            <a href="{% url 'task_detail' proposal.target_id %}">#{{ proposal.target_id }} {{ proposal.target.title }}</a>
+                            — {{ proposal.get_outcome_display }}</p>
+                        <p>{{ proposal.reason|linebreaksbr }}</p>
+                        {% if proposal.outcome == "pending" %}
+                            <form method="post" action="{% url 'decide_project_link' proposal.id %}">
+                                {% csrf_token %}
+                                <button type="submit" name="decision" value="accept">Approve link</button>
+                                <button type="submit" name="decision" value="reject" class="secondary">Reject</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </section>
+        {% endif %}
+        {% include "tasks/detail/activity.html" %}
+    </div>
+    <script src="{% static 'tasks/diagrams.js' %}" data-renderer-url="{% static 'tasks/mermaid-renderer.js' %}" defer></script>
+    {% if should_poll %}<script src="{% static 'tasks/live.js' %}" defer></script>{% endif %}
+{% endblock %}

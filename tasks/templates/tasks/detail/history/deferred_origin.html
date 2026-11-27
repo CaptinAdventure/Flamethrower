@@ -3,8 +3,7 @@
         <h2>Agent-created draft</h2>
 
         <p class="muted">Agent-created draft{% if deferred_origin.source_run_id %} from
-            <a href="{% url 'run_activity' deferred_origin.source_run.task_id deferred_origin.source_run_id %}">{{ deferred_origin.source_run.get_stage_display }} run
-                #{{ deferred_origin.source_run_id }}</a>{% elif deferred_origin.source_task_id %} related to
+            {% include "tasks/components/run_link.html" with run=deferred_origin.source_run only %}{% elif deferred_origin.source_task_id %} related to
             <a href="{% url 'task_detail' deferred_origin.source_task_id %}">task #{{ deferred_origin.source_task_id }}</a>{% endif %}. Review and approve it before
             execution.
         </p>

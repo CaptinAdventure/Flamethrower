@@ -6,6 +6,7 @@
             <h1>Tasks</h1>
             <p class="muted">Project: <code>{{ project_path }}</code></p></div>
     </div>
+    <p><a class="button secondary" href="{% url 'project_runs' %}">Ask about the project</a></p>
 
     {% for message in messages %}<p role="status">{{ message }}</p>{% endfor %}
     <section class="card quick-task" aria-labelledby="quick-task-heading">

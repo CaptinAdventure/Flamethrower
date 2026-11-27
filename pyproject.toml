@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "Django>=5.2,<5.3",
     "Pillow>=11,<13",
-    "agent-client-protocol>=0.12.1,<1",
+    "agent-client-protocol>=1.1,<2",
     "jsonschema>=4.20,<5",
     "markdown-it-py>=3,<5",
     "portalocker>=3,<4",

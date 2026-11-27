@@ -1,10 +1,12 @@
 {% if current_run.cancel_requested %}
     <p>Cancellation requested; the agent may still be working.</p>
+{% elif current_run.status == "pending" %}
+    <p>Pending: waiting for an available ACP session. Check <a href="{% url 'acp_list' %}">ACP settings</a> if an endpoint is unavailable.</p>
 {% elif question %}
     <section class="permission-card">
         <h2>Agent needs your answer</h2>
         <p>{{ question.message|linebreaksbr }}</p>
-        <p>Answering does not approve changes to the task's request, plan, or tool permissions.</p>
+        <p>Answering does not approve changes to {% if task %}the task's request, plan, or {% endif %}tool permissions.</p>
         <form method="post" action="{% url 'answer_agent_question' question.id %}">
             {% csrf_token %}
             {{ question_form.non_field_errors }}

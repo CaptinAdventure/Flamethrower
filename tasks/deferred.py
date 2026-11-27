@@ -78,7 +78,7 @@ def complete_run(run_id, stop_reason):
         if not changed:
             raise RuntimeError("The run was cancelled or changed before completion; inspect it before continuing.")
         run = AgentRun.objects.select_related("task").get(pk=run_id)
-        if run.stage == Task.Stage.ARCHITECT:
+        if run.stage in (Task.Stage.ARCHITECT, AgentRun.PROJECT):
             return
         report = final_agent_report(list(run.events.all()))
         tasks, warning = parse_deferred_tasks(report["text"])

@@ -130,26 +130,19 @@ def main():
     try:
         with portalocker.Lock(lock_path, mode="a", timeout=0):
             call_command("migrate", interactive=False, verbosity=0)
-            from tasks.models import AgentQuestion, AgentRun
-            from django.utils import timezone
-            AgentRun.objects.filter(status__in=AgentRun.ACTIVE).update(
-                status=AgentRun.Status.INTERRUPTED,
-                error="Application stopped during this run. The agent may still be working; inspect before retrying.",
-                finished_at=timezone.now(),
-            )
-            AgentQuestion.objects.filter(
-                outcome=AgentQuestion.Outcome.PENDING, run__status=AgentRun.Status.INTERRUPTED,
-            ).update(outcome=AgentQuestion.Outcome.CANCELLED)
+            from tasks.agent_scheduler import recover_interrupted_runs, start_scheduler
+            recover_interrupted_runs()
             from tasks.similarity import recover_interrupted, start_worker
             recover_interrupted()
             application = StaticFilesHandler(get_wsgi_application())
             with make_server("0.0.0.0", 0, application) as server:
                 from django.conf import settings
                 settings.LOCAL_API_TOKEN = secrets.token_urlsafe(32)
-                stop_worker = worker = None
+                stop_worker = worker = stop_scheduler = scheduler = None
                 try:
                     with handle_termination(), runtime_record(project / ".flamethrower", server.server_port, settings.LOCAL_API_TOKEN):
                         stop_worker, worker = start_worker()
+                        stop_scheduler, scheduler = start_scheduler()
                         url = f"http://127.0.0.1:{server.server_port}/"
                         print(f"Project: {project}\nOpen: {url}\nPress Ctrl+C to stop.", flush=True)
                         if not args.no_browser and not webbrowser.open(url):
@@ -159,6 +152,9 @@ def main():
                         except KeyboardInterrupt:
                             print("\nStopped. Active agent work may continue; inspect it before retrying.")
                 finally:
+                    if stop_scheduler is not None:
+                        stop_scheduler.set()
+                        scheduler.join()
                     if stop_worker is not None:
                         stop_worker.set()
                         worker.join()

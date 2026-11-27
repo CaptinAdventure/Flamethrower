@@ -84,7 +84,7 @@ class TaskMetadataTests(TestCase):
         self.assertEqual((self.task.status, self.task.severity, self.task.work_type_id), (Task.Status.READY, severity, work_type_id))
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_blocked_task_cannot_start_or_automatically_advance(self, worker):
         Task.objects.filter(pk=self.task.pk).update(
             status="blocked", blocked_reason="Waiting", state="plan_approved",

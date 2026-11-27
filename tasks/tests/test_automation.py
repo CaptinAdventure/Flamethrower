@@ -43,7 +43,7 @@ class AutomationTests(TestCase):
         return run
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_plan_approval_starts_developer_by_default(self, worker):
         self.assertEqual(self.client.post(reverse("approve_request", args=[self.task.pk]), {
             "version": self.task.version,
@@ -59,10 +59,10 @@ class AutomationTests(TestCase):
         run = self.task.runs.get()
         self.assertEqual(self.task.stage, Task.Stage.DEVELOPER)
         self.assertEqual(run.stage, Task.Stage.DEVELOPER)
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_approving_request_starts_architect_by_default(self, worker):
         self.task.plan = ""
         self.task.save()
@@ -74,10 +74,10 @@ class AutomationTests(TestCase):
         self.assertEqual((self.task.state, self.task.stage, run.stage), (
             Task.State.SCOPE_APPROVED, Task.Stage.ARCHITECT, Task.Stage.ARCHITECT,
         ))
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_passing_testing_recommendation_advances_and_starts_review(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.TESTING
@@ -96,10 +96,10 @@ class AutomationTests(TestCase):
         self.assertTrue(decision.advanced)
         self.assertEqual(decision.source_run, run)
         self.assertEqual(review_run.stage, Task.Stage.REVIEW)
-        worker.assert_called_once_with(review_run)
+        worker.assert_called_once_with()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_failed_gate_rework_pauses_for_human_decision(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.TESTING
@@ -122,7 +122,7 @@ class AutomationTests(TestCase):
         worker.assert_not_called()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_unverified_gate_rework_pauses_for_human_decision(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.REVIEW
@@ -144,7 +144,7 @@ class AutomationTests(TestCase):
         worker.assert_not_called()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_duplicate_completion_callback_does_not_pause_advanced_workflow(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.DEVELOPER
@@ -165,10 +165,10 @@ class AutomationTests(TestCase):
         self.assertEqual(self.task.automatic_pause_reason, "")
         self.assertIsNotNone(run.automation_processed_at)
         self.assertEqual(self.task.runs.count(), 2)
-        worker.assert_called_once_with(self.task.runs.first())
+        worker.assert_called_once_with()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_invalid_gate_report_pauses_without_inventing_a_result(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.TESTING
@@ -205,7 +205,7 @@ class AutomationTests(TestCase):
         self.assertTrue(decision.advanced)
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_pauses_on_third_return_to_testing(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.DEVELOPER
@@ -277,7 +277,7 @@ class AutomationTests(TestCase):
         self.assertIn("Review and reapprove", self.task.automatic_pause_reason)
         self.assertEqual(self.task.stage, Task.Stage.DRAFT)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_pending_gate_decision_blocks_continuation_until_gate_action(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.automatic_pause_reason = "Review the gate report manually."
@@ -295,7 +295,7 @@ class AutomationTests(TestCase):
                     self.task.save()
         worker.assert_not_called()
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_recorded_failure_requires_gate_action_even_without_pause_reason(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.TESTING
@@ -307,7 +307,7 @@ class AutomationTests(TestCase):
         self.assertEqual(self.continue_workflow().status_code, 409)
         worker.assert_not_called()
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_repeat_gate_checkpoint_requires_explicit_action(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.TESTING
@@ -327,7 +327,7 @@ class AutomationTests(TestCase):
                 self.assertEqual(self.continue_workflow().status_code, 409)
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_continue_resumes_after_a_simple_pause(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.DEVELOPER
@@ -336,10 +336,10 @@ class AutomationTests(TestCase):
         self.assertEqual(self.continue_workflow().status_code, 302)
         self.task.refresh_from_db()
         self.assertEqual(self.task.automatic_pause_reason, "")
-        worker.assert_called_once_with(self.task.runs.get())
+        worker.assert_called_once_with()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_continue_processes_valid_report_left_idle(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.TESTING
@@ -348,10 +348,10 @@ class AutomationTests(TestCase):
         self.assertEqual(self.continue_workflow().status_code, 302)
         self.task.refresh_from_db()
         self.assertEqual(self.task.stage, Task.Stage.REVIEW)
-        worker.assert_called_once_with(self.task.runs.first())
+        worker.assert_called_once_with()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_continue_advances_a_completed_developer_run(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.DEVELOPER
@@ -360,10 +360,10 @@ class AutomationTests(TestCase):
         self.assertEqual(self.continue_workflow().status_code, 302)
         self.task.refresh_from_db()
         self.assertEqual(self.task.stage, Task.Stage.TESTING)
-        worker.assert_called_once_with(self.task.runs.first())
+        worker.assert_called_once_with()
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_accepting_recommendation_clears_old_pause_and_starts_review(self, worker):
         self.task.state = Task.State.PLAN_APPROVED
         self.task.stage = Task.Stage.TESTING
@@ -379,4 +379,4 @@ class AutomationTests(TestCase):
         self.task.refresh_from_db()
         self.assertEqual((self.task.stage, self.task.automatic_pause_reason), (Task.Stage.REVIEW, ""))
         self.assertEqual(self.task.gate_decisions.get().source_run, run)
-        worker.assert_called_once_with(self.task.runs.first())
+        worker.assert_called_once_with()

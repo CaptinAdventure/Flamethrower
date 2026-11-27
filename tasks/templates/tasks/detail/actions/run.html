@@ -5,10 +5,10 @@
     {% if acp_issue %}<p role="alert">{{ acp_issue }}</p>{% endif %}
 
     {% if not busy and not acp_issue %}
-        <p>Saving starts a separate ACP session and sends the request and plan
+        <p>Saving queues a separate ACP session with the request and plan
             {% if task.stage == "review" %} and recorded testing evidence
             {% elif task.stage == "developer" and task.rework_note %} and rework context
-            {% endif %} to the agent.
+            {% endif %} for the agent when capacity is available.
             The agent may send project content to its configured provider.</p>
 
         <form method="post" action="{% url 'start_run' task.id %}">

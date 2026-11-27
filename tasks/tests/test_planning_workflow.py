@@ -112,7 +112,7 @@ class PlanningWorkflowTests(TestCase):
         self.assertEqual(self.task.approvals.count(), 2)
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_refine_starts_trusted_architect_for_approved_request(self, worker):
         AcpEndpoint.objects.filter(pk=self.endpoint.pk).update(enabled=True)
         response = self.client.post(reverse("refine_plan", args=[self.task.pk]), {"version": 0, "stage_version": 0})
@@ -120,7 +120,7 @@ class PlanningWorkflowTests(TestCase):
         run = self.task.runs.get()
         self.assertEqual(run.stage, Task.Stage.ARCHITECT)
         self.assertEqual(run.request_snapshot, "Add export\n\nExport the report")
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
 
     def test_draft_requires_explicit_architect_transition(self):
         task = Task.objects.create(title="New", request="A request", plan="A plan")
@@ -176,7 +176,7 @@ class PlanningWorkflowTests(TestCase):
         self.assertEqual(self.task.gate_decisions.get().task_version, 0)
 
     @override_settings(ACP_PORT="12345")
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_rework_preserves_history_and_requires_fresh_development_and_gates(self, worker):
         self.approve(0)
         AgentRun.objects.create(task=self.task, task_version=1, request_snapshot="r", plan_snapshot="p", status="completed")

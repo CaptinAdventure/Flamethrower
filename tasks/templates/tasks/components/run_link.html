@@ -1,0 +1,1 @@
+{% if run.task_id %}<a href="{% url 'run_activity' run.task_id run.id %}">Run #{{ run.id }}</a>{% else %}<a href="{% url 'project_run_detail' run.id %}">Project run #{{ run.id }}</a>{% endif %}

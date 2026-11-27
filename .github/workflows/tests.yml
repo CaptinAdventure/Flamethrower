@@ -23,6 +23,10 @@ jobs:
         run: |
           python manage.py test \
             tasks.tests.test_acp_capacity \
+            tasks.tests.test_agent_scheduler \
+            tasks.tests.test_session_recovery \
+            tasks.tests.test_project_runs \
+            tasks.tests.test_architect_tasks \
             tasks.tests.test_deferred \
             tasks.tests.test_initial_migration \
             tasks.tests.test_mcp.McpApiTests \

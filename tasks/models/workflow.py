@@ -71,7 +71,9 @@ class Approval(models.Model):
         ordering = ["-created_at", "-id"]
 
 class AgentRun(models.Model):
+    PROJECT = "project"
     class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
         STARTING = "starting", "Connecting"
         RUNNING = "running", "Running"
         WAITING = "waiting", "Waiting for permission"
@@ -79,24 +81,30 @@ class AgentRun(models.Model):
         COMPLETED = "completed", "Agent turn complete"
         INTERRUPTED = "interrupted", "Interrupted — outcome unverified"
         ACKNOWLEDGED = "acknowledged", "Interruption acknowledged"
+        CANCELLED = "cancelled", "Cancelled before dispatch"
 
-    ACTIVE = (Status.STARTING, Status.RUNNING, Status.WAITING, Status.WAITING_ANSWER)
-    task = models.ForeignKey(Task, related_name="runs", on_delete=models.CASCADE)
+    ACTIVE = (Status.PENDING, Status.STARTING, Status.RUNNING, Status.WAITING, Status.WAITING_ANSWER)
+    EXECUTING = (Status.STARTING, Status.RUNNING, Status.WAITING, Status.WAITING_ANSWER)
+    task = models.ForeignKey(Task, related_name="runs", on_delete=models.CASCADE, null=True, blank=True)
     acp_endpoint = models.ForeignKey(
         AcpEndpoint, null=True, blank=True, on_delete=models.PROTECT, related_name="runs",
     )
-    stage = models.CharField(max_length=16, choices=Task.Stage.choices, default=Task.Stage.DEVELOPER)
+    stage = models.CharField(max_length=16, choices=[*Task.Stage.choices, (PROJECT, "Project")], default=Task.Stage.DEVELOPER)
     work_cycle = models.PositiveIntegerField(default=0)
     task_version = models.PositiveIntegerField()
     request_snapshot = models.TextField()
     plan_snapshot = models.TextField()
     context_snapshot = models.TextField(blank=True)
-    status = models.CharField(max_length=32, choices=Status.choices, default=Status.STARTING)
+    initial_prompt = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     session_id = models.CharField(max_length=255, blank=True)
+    acp_host = models.CharField(max_length=255, blank=True)
+    acp_port = models.PositiveIntegerField(null=True, blank=True)
     stop_reason = models.CharField(max_length=255, blank=True)
     error = models.TextField(blank=True)
     deferred_tasks_warning = models.TextField(blank=True)
     cancel_requested = models.BooleanField(default=False)
+    recovery_pending = models.BooleanField(default=False)
     automation_processed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -105,6 +113,12 @@ class AgentRun(models.Model):
         ordering = ["-id"]
         indexes = [
             models.Index(fields=["acp_endpoint", "status"], name="run_acp_status_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(Q(task__isnull=True, stage="project") | (Q(task__isnull=False) & ~Q(stage="project"))),
+                name="run_project_task_consistent",
+            ),
         ]
 
 
@@ -167,6 +181,32 @@ class RunEvent(models.Model):
 
     class Meta:
         ordering = ["id"]
+
+
+class AgentLinkProposal(models.Model):
+    class Outcome(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+
+    run = models.ForeignKey(AgentRun, related_name="link_proposals", on_delete=models.CASCADE)
+    source = models.ForeignKey(Task, related_name="+", on_delete=models.CASCADE)
+    target = models.ForeignKey(Task, related_name="+", on_delete=models.CASCADE)
+    link_type = models.ForeignKey("tasks.LinkType", on_delete=models.PROTECT)
+    source_version = models.PositiveIntegerField()
+    target_version = models.PositiveIntegerField()
+    outward_description = models.CharField(max_length=100)
+    inward_description = models.CharField(max_length=100)
+    reason = models.TextField()
+    outcome = models.CharField(max_length=16, choices=Outcome.choices, default=Outcome.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=~Q(source=models.F("target")), name="proposal_no_self"),
+            models.UniqueConstraint(fields=["run", "source", "target", "link_type"], name="proposal_unique_per_run"),
+        ]
 
 class PermissionRequest(models.Model):
     run = models.ForeignKey(AgentRun, related_name="permissions", on_delete=models.CASCADE)

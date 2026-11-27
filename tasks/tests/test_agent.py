@@ -22,7 +22,7 @@ class AgentViewTests(TransactionTestCase):
             title="Change", request="A request", plan="A plan", state=Task.State.PLAN_APPROVED, stage=Task.Stage.DEVELOPER, version=2,
         )
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_only_approved_current_plan_can_start(self, worker):
         Task.objects.filter(pk=self.task.pk).update(automatic_pause_reason="Resume after reviewing the previous run.")
         url = reverse("start_run", args=[self.task.pk])
@@ -919,7 +919,16 @@ class AgentIntegrationTests(TransactionTestCase):
 
     def start_automatic_run(self, task):
         from ..automation import continue_automatic_task
+        from ..agent_scheduler import start_scheduler, wake_scheduler
 
+        if not hasattr(self, "scheduler_stop"):
+            self.scheduler_stop, thread = start_scheduler()
+            def stop_scheduler():
+                self.scheduler_stop.set()
+                wake_scheduler()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+            self.addCleanup(stop_scheduler)
         continue_automatic_task(task.pk)
 
     def wait_for_automatic_pause(self, task):
@@ -1325,8 +1334,9 @@ class AgentIntegrationTests(TransactionTestCase):
         with override_settings(ACP_PORT=str(server.port)):
             self.start_automatic_run(task)
             first_run = task.runs.first()
-            with patch("tasks.agent.start_worker") as review_worker:
+            with patch("tasks.agent_scheduler.wake_scheduler") as review_worker:
                 self.wait_for(lambda: PermissionRequest.objects.filter(run=first_run).exists())
+                AcpEndpoint.objects.filter(pk=self.endpoint.pk).update(last_error="Hold queued review")
                 permission = first_run.permissions.get()
                 self.assertEqual(self.client.post(
                     reverse("resolve_permission", args=[permission.pk]), {"option": "no"},
@@ -1339,7 +1349,8 @@ class AgentIntegrationTests(TransactionTestCase):
                 ).exists())
                 review_run = AgentRun.objects.get(task=task, stage=Task.Stage.REVIEW)
                 self.assertEqual(review_run.stage, Task.Stage.REVIEW)
-                review_worker.assert_called_once_with(review_run)
+                self.wait_for(lambda: review_worker.called)
+                review_worker.assert_called_once_with()
             self.wait_for_workers(task)
         server.thread.join(timeout=5)
         self.assertIsNone(server.error)
@@ -1361,9 +1372,10 @@ class AgentIntegrationTests(TransactionTestCase):
         )
         with patch("tasks.agent.asyncio.open_connection") as connect, self.assertLogs("tasks.agent", level="ERROR"):
             async_to_sync(run_agent)(
-                run.pk, run.request_snapshot, run.plan_snapshot,
-                self.endpoint.pk, self.endpoint.host, self.endpoint.port,
+                run.pk, run.initial_prompt, self.endpoint.pk,
+                self.endpoint.host, self.endpoint.port, run.stage,
             )
         connect.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, AgentRun.Status.INTERRUPTED)
+        self.assertIn("cancelled before the prompt", run.error)

@@ -85,10 +85,10 @@ def _run_context(task):
 
 
 def _launch(run):
-    from .agent import start_worker
+    from .agent_scheduler import wake_scheduler
 
     try:
-        start_worker(run)
+        wake_scheduler()
     except RuntimeError as error:
         AgentRun.objects.filter(pk=run.pk).update(
             status=AgentRun.Status.INTERRUPTED,

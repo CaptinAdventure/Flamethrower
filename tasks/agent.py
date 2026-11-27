@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import re
-import threading
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -12,23 +11,31 @@ from acp.exceptions import RequestError
 from acp.schema import (
     AcceptElicitationResponse, AllowedOutcome, CancelElicitationResponse, ClientCapabilities,
     DeniedOutcome, ElicitationCapabilities, ElicitationFormCapabilities,
-    ElicitationFormRequestMode, ElicitationFormSessionMode, RequestPermissionResponse,
+    ElicitationFormRequestMode, ElicitationFormSessionMode, RequestPermissionResponse, TextContentBlock,
 )
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.db import close_old_connections, transaction
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
 from .deferred import complete_run
 from .acp import mark_endpoint_checked
+from .architect_tasks import handle_task_block
 from .command_permissions import matching_command_prefixes
 from .mcp_permissions import matching_mcp_rule, reported_mcp_kind_mismatch, reported_mcp_tool
-from .models import ACPUsageSnapshot, AcpEndpoint, AgentQuestion, AgentRun, PermissionRequest, RepositorySettings, RunEvent, Task
-from .questions import TEXT_SCHEMA, create_question, refresh_wait_state
-from .recommendations import architect_plan, developer_complete, final_agent_report, question_text
+from .models import ACPUsageSnapshot, AgentQuestion, AgentRun, PermissionRequest, RepositorySettings, RunEvent, Task
+from .questions import QUESTION_PAUSE, TEXT_SCHEMA, create_question, refresh_wait_state
+from .recommendations import architect_plan, developer_complete, final_agent_report, project_answer, question_text
 
 logger = logging.getLogger(__name__)
+
+RECOVERY_PAUSE_REASONS = (
+    "", QUESTION_PAUSE,
+    "The Architect run did not complete normally. Inspect it before continuing.",
+    "The agent run did not complete normally. Inspect it before continuing.",
+    "The latest agent run was interrupted. Inspect and acknowledge it before continuing.",
+)
 
 
 @sync_to_async(thread_sensitive=True)
@@ -317,16 +324,26 @@ def question_result(question_id):
 
 @sync_to_async(thread_sensitive=True)
 def cancel_questions(run_id):
-    AgentQuestion.objects.filter(run_id=run_id, outcome=AgentQuestion.Outcome.PENDING).update(
-        outcome=AgentQuestion.Outcome.CANCELLED,
-    )
+    with transaction.atomic():
+        cancelled = AgentQuestion.objects.filter(run_id=run_id, outcome=AgentQuestion.Outcome.PENDING).update(
+            outcome=AgentQuestion.Outcome.CANCELLED,
+        )
+        if cancelled:
+            Task.objects.filter(runs__pk=run_id, automatic_pause_reason=QUESTION_PAUSE).exclude(
+                runs__questions__outcome=AgentQuestion.Outcome.PENDING,
+            ).update(
+                automatic_pause_reason="The agent run did not complete normally. Inspect it before continuing.",
+                updated_at=timezone.now(),
+            )
 
 
-async def wait_for_answer(run_id, question_id):
+async def wait_for_answer(run_id, question_id, *, reader=None):
     while True:
         if await is_cancelled(run_id):
             await cancel_questions(run_id)
             return None
+        if reader is not None and reader.at_eof():
+            raise RuntimeError("The ACP connection closed while waiting for recovery direction.")
         outcome, answer = await question_result(question_id)
         if outcome == AgentQuestion.Outcome.ANSWERED:
             return answer
@@ -458,7 +475,64 @@ async def stop_if_cancelled(run_id):
         raise RuntimeError("Run cancelled before the prompt was sent.")
 
 
-async def run_agent(run_id, request_text, plan, endpoint_id, host, port, stage=Task.Stage.DEVELOPER, context=""):
+@sync_to_async(thread_sensitive=True)
+def session_title(run_id):
+    run = AgentRun.objects.select_related("task").get(pk=run_id)
+    if run.task_id is None:
+        return f"[project:{run.pk}] {run.request_snapshot.splitlines()[0][:150]}"
+    return f"[{run.task_id}:{run.stage}] {run.task.title}"
+
+
+def validate_recovery(run_id, status):
+    run = AgentRun.objects.select_related("task", "acp_endpoint").get(pk=run_id)
+    task = run.task
+    if (
+        run.status != status or run.cancel_requested
+        or not run.acp_endpoint or not run.acp_endpoint.enabled
+        or (run.acp_host, run.acp_port) != (run.acp_endpoint.host, run.acp_endpoint.port)
+        or run.permissions.filter(resolved=False).exists()
+        or (task is None and run.stage != AgentRun.PROJECT)
+        or (task is not None and (
+            task.finished or task.status != Task.Status.READY or task.stage != run.stage
+            or task.version != run.task_version or task.work_cycle != run.work_cycle
+            or task.automatic_pause_reason not in RECOVERY_PAUSE_REASONS
+            or task.runs.order_by("-id").values_list("pk", flat=True).first() != run.pk
+            or task.state != (Task.State.SCOPE_APPROVED if run.stage == Task.Stage.ARCHITECT else Task.State.PLAN_APPROVED)
+        ))
+    ):
+        raise RuntimeError("The run, task, or ACP endpoint changed during recovery; inspect before continuing.")
+    return run
+
+
+@sync_to_async(thread_sensitive=True)
+def prepare_recovered_question(run_id):
+    with transaction.atomic():
+        AgentRun.objects.select_for_update().get(pk=run_id)
+        run = validate_recovery(run_id, AgentRun.Status.STARTING)
+        previous_error = run.error
+        run.status = AgentRun.Status.RUNNING
+        run.error = ""
+        run.finished_at = None
+        run.save(update_fields=["status", "error", "finished_at"])
+        RunEvent.objects.create(
+            run=run, kind="status",
+            content=(
+                "Saved ACP session reattached. The interrupted turn's outcome is unverified; waiting for human direction."
+                + (f"\nPrevious interruption: {previous_error}" if previous_error else "")
+            ),
+        )
+        Task.objects.filter(pk=run.task_id, automatic_pause_reason__in=RECOVERY_PAUSE_REASONS).update(
+            automatic_pause_reason="", updated_at=timezone.now(),
+        )
+        return create_question(
+            run_id,
+            "The saved ACP session was reattached, but the interrupted turn's outcome is unverified. "
+            "Inspect the run and project, then provide instructions for the agent.",
+            TEXT_SCHEMA, "recovery",
+        )
+
+
+async def run_agent(run_id, prompt, endpoint_id, host, port, stage, *, recovery_session_id=None):
     connection = None
     writer = None
     monitor = None
@@ -466,6 +540,8 @@ async def run_agent(run_id, request_text, plan, endpoint_id, host, port, stage=T
     connection_attempted = False
     try:
         await stop_if_cancelled(run_id)
+        if prompt is None and recovery_session_id is None:
+            raise RuntimeError("The initial prompt was not recorded; this run cannot be dispatched.")
         connection_attempted = True
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=10,
@@ -481,85 +557,49 @@ async def run_agent(run_id, request_text, plan, endpoint_id, host, port, stage=T
         await sync_to_async(mark_endpoint_checked, thread_sensitive=True)(endpoint_id)
         endpoint_initialized = True
         await stop_if_cancelled(run_id)
-        session = await asyncio.wait_for(connection.new_session(cwd=str(settings.PROJECT_PATH), mcp_servers=[]), timeout=60)
-        await update_run(run_id, session_id=session.session_id, status=AgentRun.Status.RUNNING)
+        capabilities = (
+            initialized.agent_capabilities.session_capabilities if initialized.agent_capabilities else None
+        )
+        if recovery_session_id is not None:
+            if not capabilities or capabilities.status is None or capabilities.resume is None:
+                raise RuntimeError("ACP does not advertise session status and resume; inspect the interrupted run.")
+            status = await asyncio.wait_for(connection.session_status(recovery_session_id), timeout=30)
+            if status.status != "saved":
+                raise RuntimeError(f"ACP session status is {status.status!r}, not 'saved'; inspect the interrupted run.")
+            await sync_to_async(validate_recovery, thread_sensitive=True)(run_id, AgentRun.Status.STARTING)
+            await asyncio.wait_for(connection.resume_session(
+                session_id=recovery_session_id, cwd=str(settings.PROJECT_PATH), mcp_servers=[],
+            ), timeout=60)
+            session_id = recovery_session_id
+            question_id = await prepare_recovered_question(run_id)
+            answer = await wait_for_answer(run_id, question_id, reader=reader)
+            if answer is None:
+                raise RuntimeError("Recovery direction was cancelled; inspect the agent and project before continuing.")
+            await sync_to_async(validate_recovery, thread_sensitive=True)(run_id, AgentRun.Status.RUNNING)
+            prompt = (
+                "The session was reattached after Flamethrower restarted. The interrupted turn's outcome is unverified. "
+                "The human inspected the run and provided this direction:\n"
+                f"{answer['answer']}\n\nContinue only within the original "
+                f"{'project question' if stage == AgentRun.PROJECT else 'approved request and plan'}. "
+                "Use the required question or completion format from the original instructions."
+            )
+        else:
+            session = await asyncio.wait_for(connection.new_session(cwd=str(settings.PROJECT_PATH), mcp_servers=[]), timeout=60)
+            session_id = session.session_id
+            await update_run(run_id, session_id=session_id)
+            if capabilities and capabilities.title is not None:
+                title = await session_title(run_id)
+                try:
+                    result = await asyncio.wait_for(connection.set_session_title(session_id, title), timeout=30)
+                    await save_event(run_id, "status", f"ACP session title: {result.title}")
+                except (RequestError, asyncio.TimeoutError) as error:
+                    await save_event(run_id, "status", f"ACP session title could not be set: {error}")
+            else:
+                await save_event(run_id, "status", "ACP does not advertise session title support; title not set.")
         await stop_if_cancelled(run_id)
-        instructions = {
-            Task.Stage.ARCHITECT: (
-                "Act as Architect for the following human-approved request. Inspect relevant project context "
-                "and propose one implementation-useful design, including affected components, dependencies, "
-                "risks, permissions, verification, alternatives, and two Mermaid diagrams. "
-                "Distinguish verified facts from assumptions and mark unverified claims NOT_YET_VERIFIED. "
-                "Do not implement changes, edit project files, run project commands, or approve your own design. "
-                "If the request or scope is unclear, stop and explain the decision needed."
-            ),
-            Task.Stage.DEVELOPER: "Implement the following human-approved request and plan. If the plan is insufficient, stop and explain.",
-            Task.Stage.TESTING: "Test the implementation against the approved request and plan. Do not implement fixes or modify project files except test-generated artifacts. Report commands, actual results, failures, and untested areas.",
-            Task.Stage.REVIEW: "Independently review the implementation against the approved request, plan, and provided test evidence. Do not modify project files. Report actionable findings and uncertainties; do not claim an independent review occurred merely because this session ran.",
-        }
-        if stage not in instructions:
-            raise RuntimeError(f"Unsupported agent stage: {stage}")
-        prompt = (
-            f"{instructions[stage]} Preserve unrelated work. Do not commit, push, publish, or perform "
-            f"operations outside the approved {'request' if stage == Task.Stage.ARCHITECT else 'plan'}. "
-            "Report only work actually performed; do not claim "
-            "unrun checks passed.\n\n"
-            f"REQUEST:\n{request_text}\n\n"
-            f"{'EXISTING UNAPPROVED PLAN' if stage == Task.Stage.ARCHITECT else 'APPROVED PLAN'}:\n{plan}"
-        )
-        if context:
-            prompt += f"\n\nHUMAN-RECORDED CONTEXT:\n{context}"
-        prompt += (
-            "\n\nIf you need a human decision, use an available question form. If none is available, "
-            "end your response with exactly this block and wait for an answer:\n"
-            "FLAMETHROWER_QUESTION\n<the question and any necessary context>\nEND_FLAMETHROWER_QUESTION\n"
-            "Do not treat an answer as permission to change the approved request or plan."
-        )
-        if stage == Task.Stage.ARCHITECT:
-            prompt += (
-                "\n\nIf a complete design is ready for human review, end your final response with "
-                "exactly one block in this format, without a Markdown fence around the block:\n"
-                "FLAMETHROWER_ARCHITECT_PLAN\n"
-                "<the proposed design>\n"
-                "END_FLAMETHROWER_ARCHITECT_PLAN\n"
-                "If a decision blocks the design, explain it without a plan block."
-            )
-        if stage != Task.Stage.ARCHITECT:
-            prompt += (
-                "\n\nIf you discover useful related work outside the approved scope, do not implement it "
-                "as part of this task. Instead, put one deferred-task block in your final response, "
-                "with valid JSON and no Markdown fence, using this format:\n"
-                "FLAMETHROWER_DEFERRED_TASKS\n"
-                '{"tasks":[{"title":"short title","request":"self-contained description of the deferred work and why it matters"}]}\n'
-                "END_FLAMETHROWER_DEFERRED_TASKS\n"
-                "Include at most 20 tasks; each title must be 1–200 characters and each request 1–20000 characters. "
-                "Omit the block if there is no deferred work. These are unapproved draft tasks, not work completed. "
-                "If the issue prevents completing the approved scope, stop and explain rather than treating it as resolved."
-            )
-        if stage in (Task.Stage.TESTING, Task.Stage.REVIEW):
-            prompt += (
-                "\n\nUnless asking a question, put any deferred-task block immediately before the gate recommendation. "
-                "When reporting a gate result, end your final response with exactly one gate recommendation block in the following format, "
-                "using valid JSON with string values and no Markdown code fence:\n"
-                "FLAMETHROWER_GATE_RECOMMENDATION\n"
-                '{"result":"passed|failed|unverified","recommendation":"advance|rework|hold",'
-                '"summary":"concise conclusion","evidence":"actual commands, results, or findings",'
-                '"untested":"what was not verified","reason":"why this action is recommended"}\n'
-                "END_FLAMETHROWER_GATE_RECOMMENDATION\n"
-                "Choose one value for result and recommendation, not the pipe-separated examples. "
-                "Recommend advance only for passed, and never claim checks or review were performed "
-                "when they were not. Use unverified and hold when evidence is insufficient. "
-                "Recommend rework or hold for failed or unverified results. The human decides whether to accept."
-            )
-        elif stage != Task.Stage.ARCHITECT:
-            prompt += (
-                "\nWhen the approved implementation is complete, put any deferred-task block immediately "
-                "before this final completion signal:\n"
-                "FLAMETHROWER_DEVELOPER_COMPLETE\nEND_FLAMETHROWER_DEVELOPER_COMPLETE"
-            )
-        monitor = asyncio.create_task(watch_cancel(connection, session.session_id, run_id))
+        monitor = asyncio.create_task(watch_cancel(connection, session_id, run_id))
         while True:
-            prompt_task = asyncio.ensure_future(connection.prompt(session_id=session.session_id, prompt=[acp.text_block(prompt)]))
+            prompt_task = asyncio.ensure_future(connection.prompt(session_id=session_id, prompt=[TextContentBlock(text=prompt)]))
             done, _ = await asyncio.wait([prompt_task, monitor], return_when=asyncio.FIRST_COMPLETED)
             if monitor in done:
                 await monitor
@@ -579,9 +619,15 @@ async def run_agent(run_id, request_text, plan, endpoint_id, host, port, stage=T
                 raise RuntimeError(f"Agent turn ended with stop reason {response.stop_reason}; outcome is NOT_YET_VERIFIED.")
             report = await current_run_report(run_id)
             text = report["text"]
+            if stage in (Task.Stage.ARCHITECT, AgentRun.PROJECT):
+                task_response = await sync_to_async(handle_task_block, thread_sensitive=True)(run_id, text)
+                if task_response is not None:
+                    prompt = task_response
+                    continue
             question = question_text(text)
             complete = (
                 bool(architect_plan(text)) if stage == Task.Stage.ARCHITECT else
+                bool(project_answer(text)) if stage == AgentRun.PROJECT else
                 developer_complete(text) if stage == Task.Stage.DEVELOPER else
                 bool(report["recommendation"])
             )
@@ -597,7 +643,8 @@ async def run_agent(run_id, request_text, plan, endpoint_id, host, port, stage=T
                 raise RuntimeError("The question was cancelled; inspect the agent and project before continuing.")
             prompt = (
                 "The human answered the pending question or review request:\n"
-                f"{answer['answer']}\n\nContinue only within the approved request and plan. "
+                f"{answer['answer']}\n\nContinue only within the original "
+                f"{'project question' if stage == AgentRun.PROJECT else 'approved request and plan'}. "
                 "If clarification is still needed, ask another question. "
                 "Use the required question or completion format from the original instructions."
             )
@@ -616,22 +663,3 @@ async def run_agent(run_id, request_text, plan, endpoint_id, host, port, stage=T
         if writer:
             writer.close()
             await writer.wait_closed()
-
-
-def start_worker(run):
-    endpoint = run.acp_endpoint
-    if endpoint is None:
-        raise RuntimeError("The run has no assigned ACP endpoint.")
-
-    def work():
-        try:
-            asyncio.run(run_agent(
-                run.pk, run.request_snapshot, run.plan_snapshot, endpoint.pk,
-                endpoint.host, endpoint.port, run.stage, run.context_snapshot,
-            ))
-            from .automation import continue_automatic_run
-
-            continue_automatic_run(run.pk)
-        finally:
-            close_old_connections()
-    threading.Thread(target=work, name=f"agent-run-{run.pk}", daemon=True).start()

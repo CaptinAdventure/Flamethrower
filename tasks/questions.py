@@ -140,6 +140,8 @@ def refresh_wait_state(run_id):
         else:
             status, reason = AgentRun.Status.RUNNING, ""
         AgentRun.objects.filter(pk=run_id).update(status=status)
+        if run.task_id is None:
+            return
         task = Task.objects.get(pk=run.task_id)
         if not task.automatic_pause_reason or task.automatic_pause_reason in (QUESTION_PAUSE, PERMISSION_PAUSE):
             Task.objects.filter(pk=task.pk).update(automatic_pause_reason=reason, updated_at=timezone.now())

@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.urls import reverse
 
 from ..acp import AcpUnavailable, create_run, mark_endpoint_checked
+from ..agent_scheduler import claim_next_run
 from ..forms import AcpEndpointForm
 from ..models import ACPUsageSnapshot, AcpEndpoint, AgentRun, RepositorySettings, Task
 
@@ -72,7 +73,10 @@ class AcpEndpointTests(TestCase):
             request_snapshot="Request", plan_snapshot="Plan", **values,
         )
 
-    def test_auto_selection_uses_priority_then_falls_back_to_next_free(self):
+    def run_task(self, **values):
+        return self.task(stage=Task.Stage.DEVELOPER, state=Task.State.PLAN_APPROVED, **values)
+
+    def test_auto_selection_queues_and_claims_by_priority_and_capacity(self):
         self.first.priority = 2
         self.first.session_limit = 1
         self.first.save(update_fields=["priority", "session_limit"])
@@ -80,40 +84,65 @@ class AcpEndpointTests(TestCase):
         self.second.session_limit = 1
         self.second.save(update_fields=["priority", "session_limit"])
 
-        first_run = self.create_run_for_task(self.task())
-        second_run = self.create_run_for_task(self.task())
-        self.assertEqual(first_run.acp_endpoint, self.second)
-        self.assertEqual(second_run.acp_endpoint, self.first)
-        with self.assertRaisesMessage(AcpUnavailable, "No enabled ACP is currently available"):
-            self.create_run_for_task(self.task())
+        first_run = self.create_run_for_task(self.run_task())
+        second_run = self.create_run_for_task(self.run_task())
+        waiting = self.create_run_for_task(self.run_task())
+        for run in (first_run, second_run, waiting):
+            self.assertEqual(run.status, AgentRun.Status.PENDING)
+            self.assertIsNone(run.acp_endpoint)
+        first_claim = claim_next_run()
+        second_claim = claim_next_run()
+        self.assertEqual((first_claim.pk, first_claim.acp_endpoint_id), (first_run.pk, self.second.pk))
+        self.assertEqual((second_claim.pk, second_claim.acp_endpoint_id), (second_run.pk, self.first.pk))
+        self.assertIsNone(claim_next_run())
+        first_claim.status = AgentRun.Status.INTERRUPTED
+        first_claim.save(update_fields=["status"])
+        self.assertIsNone(claim_next_run())
+        first_claim.status = AgentRun.Status.ACKNOWLEDGED
+        first_claim.save(update_fields=["status"])
+        claimed = claim_next_run()
+        self.assertEqual((claimed.pk, claimed.acp_endpoint_id), (waiting.pk, self.second.pk))
 
 
-    def test_explicit_selection_rejects_disabled_or_busy_without_fallback(self):
+    def test_explicit_selection_queues_without_fallback_and_rejects_disabled(self):
         self.first.session_limit = 1
         self.first.save(update_fields=["session_limit"])
-        task = self.task(
+        task = self.run_task(
             acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.first,
         )
-        self.create_run_for_task(task)
-        with self.assertRaisesMessage(AcpUnavailable, "selected ACP is busy"):
-            self.create_run_for_task(self.task(
-                acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.first,
-            ))
+        first = self.create_run_for_task(task)
+        waiting = self.create_run_for_task(self.run_task(
+            acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.first,
+        ))
+        automatic = self.create_run_for_task(self.run_task())
+        self.assertEqual((first.status, waiting.status), (AgentRun.Status.PENDING, AgentRun.Status.PENDING))
+        self.assertEqual(waiting.acp_endpoint_id, self.first.pk)
+        self.assertEqual(claim_next_run().pk, first.pk)
+        claimed = claim_next_run()
+        self.assertEqual((claimed.pk, claimed.acp_endpoint_id), (automatic.pk, self.second.pk))
+        self.assertIsNone(claim_next_run())
+        first.refresh_from_db()
+        first.status = AgentRun.Status.COMPLETED
+        first.save(update_fields=["status"])
+        self.assertEqual(claim_next_run().pk, waiting.pk)
 
-        AgentRun.objects.filter(acp_endpoint=self.first).update(status=AgentRun.Status.COMPLETED)
         self.first.enabled = False
         self.first.save(update_fields=["enabled"])
         with self.assertRaisesMessage(AcpUnavailable, "selected ACP is disabled"):
-            self.create_run_for_task(task)
+            self.create_run_for_task(self.run_task(
+                acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.first,
+            ))
 
-    def test_explicit_selection_rejects_known_failure_until_connection_check_succeeds(self):
+    def test_explicit_selection_waits_for_connection_check_after_known_failure(self):
         self.first.last_error = "Connection refused"
         self.first.save(update_fields=["last_error"])
-        task = self.task(
+        task = self.run_task(
             acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.first,
         )
-        with self.assertRaisesMessage(AcpUnavailable, "unavailable"):
-            self.create_run_for_task(task)
+        run = self.create_run_for_task(task)
+        self.assertEqual(run.status, AgentRun.Status.PENDING)
+        self.assertEqual(run.acp_endpoint_id, self.first.pk)
+        self.assertIsNone(claim_next_run())
 
         with patch(
             "tasks.views.acps.check_endpoint_connection",
@@ -125,14 +154,19 @@ class AcpEndpointTests(TestCase):
         self.first.refresh_from_db()
         self.assertEqual(self.first.last_error, "")
         self.assertIsNotNone(self.first.last_success_at)
-        self.assertEqual(self.create_run_for_task(task).acp_endpoint, self.first)
+        claimed = claim_next_run()
+        self.assertEqual((claimed.pk, claimed.acp_endpoint_id), (run.pk, self.first.pk))
 
     def test_distinct_endpoints_can_run_concurrently(self):
-        first_task = self.task()
+        first_task = self.run_task()
         first_run = self.create_run_for_task(first_task)
-        second_task = self.task(acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.second)
+        second_task = self.run_task(acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=self.second)
         second_run = self.create_run_for_task(second_task)
-        self.assertNotEqual(first_run.acp_endpoint_id, second_run.acp_endpoint_id)
+        self.assertIsNone(first_run.acp_endpoint_id)
+        self.assertEqual(second_run.acp_endpoint_id, self.second.pk)
+        first_claim, second_claim = claim_next_run(), claim_next_run()
+        self.assertEqual((first_claim.pk, first_claim.acp_endpoint_id), (first_run.pk, self.first.pk))
+        self.assertEqual((second_claim.pk, second_claim.acp_endpoint_id), (second_run.pk, self.second.pk))
 
     def test_endpoint_form_rejects_non_loopback_and_invalid_ports(self):
         for values in (
@@ -158,8 +192,9 @@ class AcpEndpointTests(TestCase):
         self.assertEqual(task.version, 0)
 
     def test_reserved_endpoint_cannot_be_deleted(self):
-        task = self.task()
+        task = self.run_task()
         self.create_run_for_task(task)
+        self.assertEqual(claim_next_run().acp_endpoint_id, self.first.pk)
         self.first.enabled = False
         self.first.save(update_fields=["enabled"])
         self.assertEqual(

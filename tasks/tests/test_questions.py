@@ -1,16 +1,16 @@
 import json
 import socket
 import threading
-import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from acp.exceptions import RequestError
 from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase
 from django.urls import reverse
 
-from ..acp import AcpUnavailable, create_run
+from ..acp import create_run
+from ..agent_scheduler import claim_next_run
 from ..automation import continue_automatic_run
 from ..deferred import complete_run, parse_deferred_tasks
 from ..models import AcpEndpoint, AgentQuestion, AgentRun, PermissionRequest, RunEvent, Task
@@ -165,11 +165,23 @@ class QuestionTests(TestCase):
         create_question(self.run.pk, "Question?", TEXT_SCHEMA, "turn")
         with self.assertRaises(RuntimeError):
             complete_run(self.run.pk, "end_turn")
-        with self.assertRaises(AcpUnavailable):
-            create_run(
-                Task.objects.create(title="Other", request="r"),
-                task_version=0, request_snapshot="r", plan_snapshot="p",
-            )
+        task = Task.objects.create(
+            title="Other", request="r", stage=Task.Stage.DEVELOPER, state=Task.State.PLAN_APPROVED,
+        )
+        pending = create_run(
+            task, stage=task.stage, task_version=task.version, request_snapshot="r", plan_snapshot="p",
+        )
+        self.assertEqual(pending.status, AgentRun.Status.PENDING)
+        self.assertIsNone(pending.acp_endpoint)
+        self.assertIsNone(claim_next_run())
+        self.run.refresh_from_db()
+        self.run.status = AgentRun.Status.INTERRUPTED
+        self.run.save(update_fields=["status"])
+        self.assertIsNone(claim_next_run())
+        self.run.status = AgentRun.Status.ACKNOWLEDGED
+        self.run.save(update_fields=["status"])
+        claimed = claim_next_run()
+        self.assertEqual((claimed.pk, claimed.acp_endpoint_id), (pending.pk, endpoint.pk))
 
     def test_deferred_report_can_precede_developer_completion(self):
         report = (
@@ -267,48 +279,94 @@ class QuestionACPServer:
 
 
 class QuestionIntegrationTests(TransactionTestCase):
-    def wait_for(self, condition):
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            if condition():
-                return
-            time.sleep(0.05)
-        self.fail("Timed out waiting for the agent.")
-
     @patch("tasks.automation.continue_automatic_run")
     def test_form_and_turn_questions_resume_the_same_session(self, continuation):
-        from ..agent import start_worker
+        from ..acp import create_run
+        from ..agent import question_result as original_question_result
+        from ..agent_scheduler import start_scheduler, wake_scheduler
 
         for index, mode in enumerate(("form", "question", "ambiguous"), start=1):
             with self.subTest(mode=mode):
+                question_ready = threading.Event()
+                resume_agent = threading.Event()
+                abort_agent = threading.Event()
+                finished = threading.Event()
+                continuation.side_effect = lambda run_id: finished.set()
+
+                @sync_to_async(thread_sensitive=True)
+                def observe_question(question_id):
+                    result = original_question_result.__wrapped__(question_id)
+                    if result[0] == AgentQuestion.Outcome.PENDING:
+                        # The shared-cache SQLite test DB rejects concurrent reads during the answer write.
+                        question_ready.set()
+                        if not resume_agent.wait(timeout=10) or abort_agent.is_set():
+                            raise RuntimeError("Question integration test did not release the agent.")
+                    return result
+
                 server = QuestionACPServer(mode)
                 server.thread.start()
                 endpoint = AcpEndpoint.objects.create(name=mode, port=server.port)
-                task = Task.objects.create(title=mode, request="r", plan="p", state="plan_approved", stage="developer")
-                run = AgentRun.objects.create(
-                    task=task, acp_endpoint=endpoint, stage="developer", task_version=0,
+                task = Task.objects.create(
+                    title=mode, request="r", plan="p", state="plan_approved", stage="developer",
+                    acp_selection=Task.AcpSelection.EXPLICIT, selected_acp_endpoint=endpoint,
+                )
+                run = create_run(
+                    task, stage="developer", task_version=0,
                     request_snapshot="r", plan_snapshot="p",
                 )
-                start_worker(run)
-                self.wait_for(lambda: AgentQuestion.objects.filter(run=run, outcome="pending").exists())
-                run.refresh_from_db()
-                self.assertEqual(run.status, AgentRun.Status.WAITING_ANSWER)
-                question = AgentQuestion.objects.get(run=run)
-                if mode == "ambiguous":
-                    self.assertIn("Review the run activity", question.message)
-                value = {"answer-database": "postgres"} if mode == "form" else {"answer-answer": "Use PostgreSQL"}
-                self.assertEqual(self.client.post(reverse("answer_agent_question", args=[question.pk]), value).status_code, 302)
-                self.wait_for(lambda: AgentRun.objects.filter(pk=run.pk, status="completed").exists())
-                server.thread.join(timeout=5)
-                self.assertFalse(server.thread.is_alive())
-                self.assertIsNone(server.error)
-                self.assertIn("elicitation", server.initialize["params"]["clientCapabilities"])
-                if mode == "form":
-                    self.assertEqual(server.answer["result"], {"action": "accept", "content": {"database": "postgres"}})
-                    self.assertEqual(len(server.prompts), 1)
-                else:
-                    self.assertEqual(len(server.prompts), 2)
-                    self.assertEqual(server.prompts[1]["sessionId"], "question-session")
-                    self.assertIn("Use PostgreSQL", server.prompts[1]["prompt"][0]["text"])
-                self.wait_for(lambda: continuation.call_count >= index)
+                with patch("tasks.agent.question_result", new=observe_question):
+                    stop, scheduler = start_scheduler()
+                    worker = None
+                    try:
+                        self.assertTrue(question_ready.wait(timeout=10), "Agent did not wait for its question.")
+                        worker = next(
+                            (thread for thread in threading.enumerate() if thread.name == f"agent-run-{run.pk}"),
+                            None,
+                        )
+                        self.assertIsNotNone(worker)
+                        stop.set()
+                        wake_scheduler()
+                        scheduler.join(timeout=10)
+                        self.assertFalse(scheduler.is_alive())
+                        run.refresh_from_db()
+                        self.assertEqual(run.status, AgentRun.Status.WAITING_ANSWER)
+                        question = AgentQuestion.objects.get(run=run, outcome="pending")
+                        if mode == "ambiguous":
+                            self.assertIn("Review the run activity", question.message)
+                        value = {"answer-database": "postgres"} if mode == "form" else {"answer-answer": "Use PostgreSQL"}
+                        self.assertEqual(self.client.post(reverse("answer_agent_question", args=[question.pk]), value).status_code, 302)
+                        resume_agent.set()
+                        self.assertTrue(finished.wait(timeout=10), "Agent did not finish its run.")
+                        worker.join(timeout=10)
+                        self.assertFalse(worker.is_alive())
+                        run.refresh_from_db()
+                        self.assertEqual(run.status, AgentRun.Status.COMPLETED, run.error)
+                        server.thread.join(timeout=5)
+                        self.assertFalse(server.thread.is_alive())
+                        self.assertIsNone(server.error)
+                        self.assertIn("elicitation", server.initialize["params"]["clientCapabilities"])
+                        if mode == "form":
+                            self.assertEqual(server.answer["result"], {"action": "accept", "content": {"database": "postgres"}})
+                            self.assertEqual(len(server.prompts), 1)
+                        else:
+                            self.assertEqual(len(server.prompts), 2)
+                            self.assertEqual(server.prompts[1]["sessionId"], "question-session")
+                            self.assertIn("Use PostgreSQL", server.prompts[1]["prompt"][0]["text"])
+                        self.assertEqual(continuation.call_count, index)
+                        continuation.assert_called_with(run.pk)
+                    finally:
+                        abort_agent.set()
+                        resume_agent.set()
+                        stop.set()
+                        wake_scheduler()
+                        scheduler.join(timeout=10)
+                        if worker is None:
+                            worker = next(
+                                (thread for thread in threading.enumerate() if thread.name == f"agent-run-{run.pk}"),
+                                None,
+                            )
+                        if worker:
+                            worker.join(timeout=10)
+                        server.socket.close()
+                        server.thread.join(timeout=10)
         self.assertEqual(continuation.call_count, 3)

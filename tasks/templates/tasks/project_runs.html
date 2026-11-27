@@ -1,0 +1,19 @@
+{% extends "tasks/base.html" %}
+{% block title %}Ask about the project · Flamethrower{% endblock %}
+{% block content %}
+    <h1>Ask about the project</h1>
+    <section class="card">
+        <p>Ask an ACP to investigate the project or review its tasks. Task-link suggestions require your approval. The ACP may send project content to its provider; permissions do not sandbox it.</p>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button type="submit">Ask ACP</button>
+        </form>
+    </section>
+    <section class="card">
+        <h2>Project inquiries</h2>
+        {% for run in runs %}
+            <p><a href="{% url 'project_run_detail' run.id %}">Run #{{ run.id }}</a> — {{ run.get_status_display }} — {{ run.request_snapshot|truncatechars:120 }}</p>
+        {% empty %}<p>No project inquiries yet.</p>{% endfor %}
+    </section>
+{% endblock %}

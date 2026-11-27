@@ -73,7 +73,7 @@
         <td>
           {% for currency, total in row.usage.costs.items %}
             {{ total.formatted_amount }} {{ currency }} (
-            {% for run in total.runs %}<a href="{% url 'run_activity' run.task_id run.id %}">run #{{ run.id }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})<br>
+            {% for run in total.runs %}{% include "tasks/components/run_link.html" with run=run only %}{% if not forloop.last %}, {% endif %}{% endfor %})<br>
           {% empty %}
             Not reported
           {% endfor %}
@@ -87,7 +87,7 @@
         </td>
         <td>
           {{ row.usage.runs_without_cost|length }}
-          {% for run in row.usage.runs_without_cost %}<br><a href="{% url 'run_activity' run.task_id run.id %}">Run #{{ run.id }}</a>{% empty %} —{% endfor %}
+          {% for run in row.usage.runs_without_cost %}<br>{% include "tasks/components/run_link.html" with run=run only %}{% empty %} —{% endfor %}
         </td>
       </tr>
       {% empty %}
@@ -122,7 +122,7 @@
         <td>{{ row.endpoint.enabled|yesno:"Enabled,Disabled" }}</td>
         <td>{{ row.status }}</td>
         <td>{{ row.runs|length }} / {{ row.endpoint.session_limit }}</td>
-        <td>{% for run in row.runs %}<div><a href="{% url 'run_activity' run.task_id run.id %}">#{{ run.id }} · {{ run.get_status_display }}</a> — <a href="{% url 'task_detail' run.task_id %}">#{{ run.task_id }} {{ run.task.title }}</a></div>{% empty %}—{% endfor %}</td>
+        <td>{% for run in row.runs %}<div>{% include "tasks/components/run_link.html" with run=run only %} · {{ run.get_status_display }}{% if run.task_id %} — <a href="{% url 'task_detail' run.task_id %}">#{{ run.task_id }} {{ run.task.title }}</a>{% endif %}</div>{% empty %}—{% endfor %}</td>
         <td>{% if row.endpoint.last_checked_at %}{{ row.endpoint.last_checked_at }}{% else %}Never checked{% endif %}{% if row.endpoint.last_error %}<br><span class="errorlist">{{ row.endpoint.last_error }}</span>{% endif %}</td>
         <td><a href="{% url 'acp_edit' row.endpoint.id %}">Edit</a> · <a href="{% url 'acp_delete' row.endpoint.id %}">Delete</a>{% if row.endpoint.enabled and not row.runs %} · <form method="post" action="{% url 'acp_check' row.endpoint.id %}" class="inline-form">{% csrf_token %}<button type="submit" class="secondary">Check connection</button></form>{% endif %}</td>
       </tr>

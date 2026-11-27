@@ -31,7 +31,7 @@ class DeveloperDecisionTests(TestCase):
         self.task.refresh_from_db()
         self.assertEqual(self.task.stage, Task.Stage.DEVELOPER)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_approval_advances_and_restarts_automation(self, worker):
         self.assertEqual(self.post("advance_stage").status_code, 302)
         self.task.refresh_from_db()
@@ -40,10 +40,10 @@ class DeveloperDecisionTests(TestCase):
         self.assertIn(f"approved Developer run #{self.run.pk}", self.task.approvals.get(kind=Approval.Kind.STAGE).content)
         testing = self.task.runs.first()
         self.assertEqual(testing.stage, Task.Stage.TESTING)
-        worker.assert_called_once_with(testing)
+        worker.assert_called_once_with()
         self.assertEqual(self.post("advance_stage").status_code, 409)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_refusal_requires_feedback_and_starts_fresh_run(self, worker):
         self.assertEqual(self.post("refuse_developer", reason="  ").status_code, 400)
         self.assertEqual(self.task.runs.count(), 1)
@@ -54,7 +54,7 @@ class DeveloperDecisionTests(TestCase):
         self.assertEqual((run.stage, run.work_cycle, run.task_version), (Task.Stage.DEVELOPER, 1, 2))
         self.assertIn("Fix the contrast", run.context_snapshot)
         self.assertIn(f"refused Developer run #{self.run.pk}", self.task.approvals.get(kind=Approval.Kind.STAGE).content)
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
         self.assertEqual(self.post("refuse_developer", reason="Again").status_code, 409)
         self.assertEqual(self.task.runs.count(), 2)
 
@@ -67,12 +67,12 @@ class DeveloperDecisionTests(TestCase):
         self.assertEqual(self.task.work_cycle, 0)
         self.assertEqual(self.task.runs.count(), 1)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_refusal_starts_rework_run(self, worker):
         self.assertEqual(self.post("refuse_developer", reason="Fix the contrast").status_code, 302)
         self.task.refresh_from_db()
         self.assertEqual(self.task.work_cycle, 1)
-        worker.assert_called_once_with(self.task.runs.first())
+        worker.assert_called_once_with()
 
     def test_cannot_continue_paused_active_run(self):
         self.run.status = AgentRun.Status.RUNNING
@@ -81,7 +81,7 @@ class DeveloperDecisionTests(TestCase):
         self.task.refresh_from_db()
         self.assertIn("permission", self.task.automatic_pause_reason)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_unpaused_workflow_advances_automatically(self, worker):
         Task.objects.filter(pk=self.task.pk).update(automatic_pause_reason="")
         RunEvent.objects.create(

@@ -22,7 +22,7 @@ class ArchitectWorkflowTests(TestCase):
     def approve_request(self):
         return self.post("approve_request", version=0, stage_version=0)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_request_approval_is_required_and_invalidated_by_scope_edit(self, worker):
         self.assertEqual(self.post("refine_plan", version=0, stage_version=0).status_code, 409)
         self.assertEqual(self.post("approve_plan", version=0, stage_version=0).status_code, 400)
@@ -33,7 +33,7 @@ class ArchitectWorkflowTests(TestCase):
         run = self.task.runs.get()
         run.status = AgentRun.Status.ACKNOWLEDGED
         run.save(update_fields=["status"])
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
         self.assertEqual(self.approve_request().status_code, 409)
         response = self.client.post(reverse("task_edit", args=[self.task.pk]), {
             "version": self.task.version, "stage_version": self.task.stage_version,
@@ -44,7 +44,7 @@ class ArchitectWorkflowTests(TestCase):
         self.assertEqual((self.task.state, self.task.stage), (Task.State.DRAFT, Task.Stage.DRAFT))
         self.assertEqual(self.post("refine_plan", version=self.task.version, stage_version=self.task.stage_version).status_code, 409)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_changing_approved_request_pauses_workflow(self, worker):
         self.assertEqual(self.approve_request().status_code, 302)
         self.task.refresh_from_db()
@@ -71,21 +71,21 @@ class ArchitectWorkflowTests(TestCase):
         self.assertEqual(self.task.automatic_pause_reason, "")
         self.assertFalse(self.task.runs.exists())
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_refine_rejects_stale_requests_and_active_runs(self, worker):
         self.approve_request()
         self.task.refresh_from_db()
         self.assertEqual(self.post("refine_plan", version=0, stage_version=0).status_code, 409)
         self.assertEqual(self.task.runs.count(), 1)
-        worker.assert_called_once_with(self.task.runs.get())
+        worker.assert_called_once_with()
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_automatic_workflow_starts_architect_and_waits_for_human(self, worker):
         self.assertEqual(self.approve_request().status_code, 302)
         self.task.refresh_from_db()
         run = self.task.runs.get()
         self.assertEqual(run.stage, Task.Stage.ARCHITECT)
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
         run.status = AgentRun.Status.COMPLETED
         run.save()
         RunEvent.objects.create(run=run, kind="message", content="FLAMETHROWER_ARCHITECT_PLAN\nProposed design\nEND_FLAMETHROWER_ARCHITECT_PLAN")
@@ -98,7 +98,7 @@ class ArchitectWorkflowTests(TestCase):
         self.assertEqual(self.task.plan, "")
         self.assertEqual(self.task.runs.count(), 1)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_accepting_current_proposal_approves_plan_and_advances(self, worker):
         self.approve_request()
         self.task.refresh_from_db()
@@ -116,9 +116,9 @@ class ArchitectWorkflowTests(TestCase):
         self.assertEqual(self.task.state, Task.State.PLAN_APPROVED)
         self.assertEqual(self.task.stage, Task.Stage.DEVELOPER)
         self.assertEqual(list(self.task.approvals.order_by("id").values_list("kind", flat=True)), ["scope", "plan"])
-        worker.assert_has_calls([call(run), call(self.task.runs.first())])
+        self.assertEqual(worker.call_args_list, [call(), call()])
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_stale_and_interrupted_proposals_cannot_be_applied(self, worker):
         self.approve_request()
         self.task.refresh_from_db()
@@ -137,9 +137,9 @@ class ArchitectWorkflowTests(TestCase):
         self.assertEqual(self.post("use_architect_plan", **data).status_code, 409)
         self.task.refresh_from_db()
         self.assertEqual(self.task.plan, "")
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_unstructured_or_unresolved_report_is_not_a_plan(self, worker):
         self.approve_request()
         self.task.refresh_from_db()
@@ -153,7 +153,7 @@ class ArchitectWorkflowTests(TestCase):
             "use_architect_plan", version=self.task.version, stage_version=self.task.stage_version,
             run_id=run.pk, report_hash=hashlib.sha256(b"A decision is needed before planning.").hexdigest(),
         ).status_code, 409)
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
 
     def proposal(self):
         self.assertEqual(self.approve_request().status_code, 302)
@@ -172,7 +172,7 @@ class ArchitectWorkflowTests(TestCase):
         return run, page.context["architect_form"].initial
 
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_accepting_proposal_starts_developer_automatically(self, worker):
         run, values = self.proposal()
         Task.objects.filter(pk=self.task.pk).update(automatic_pause_reason="Review this proposal.")
@@ -182,10 +182,10 @@ class ArchitectWorkflowTests(TestCase):
         developer = self.task.runs.first()
         self.assertEqual(developer.stage, Task.Stage.DEVELOPER)
         self.assertEqual(developer.plan_snapshot, "Proposed design")
-        worker.assert_has_calls([call(run), call(developer)])
+        self.assertEqual(worker.call_args_list, [call(), call()])
         self.assertIn(f"Architect run #{run.pk}", self.task.approvals.get(kind=Approval.Kind.PLAN).content)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_refinement_requires_feedback_and_sends_the_proposal_to_architect(self, worker):
         previous, values = self.proposal()
         self.assertEqual(self.post("refine_architect_plan", **values, feedback=" ").status_code, 400)
@@ -199,7 +199,7 @@ class ArchitectWorkflowTests(TestCase):
         self.assertIn(f"Architect run #{previous.pk}", run.context_snapshot)
         self.assertEqual(run.stage, Task.Stage.ARCHITECT)
         self.assertFalse(self.task.approvals.filter(kind=Approval.Kind.PLAN).exists())
-        worker.assert_has_calls([call(previous), call(run)])
+        self.assertEqual(worker.call_args_list, [call(), call()])
         self.assertEqual(self.post("refine_architect_plan", **values, feedback="Again").status_code, 409)
         self.assertEqual(self.task.runs.count(), 2)
 
@@ -213,7 +213,7 @@ class ArchitectWorkflowTests(TestCase):
         self.assertEqual(self.task.stage_version, values["stage_version"])
         self.assertEqual(self.task.runs.count(), 1)
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_abandoning_keeps_history(self, worker):
         run, values = self.proposal()
         Task.objects.filter(pk=self.task.pk).update(automatic_pause_reason="Review this proposal.")
@@ -225,9 +225,9 @@ class ArchitectWorkflowTests(TestCase):
         self.assertEqual(self.task.approvals.count(), 2)
         self.assertFalse(self.task.approvals.filter(kind=Approval.Kind.PLAN).exists())
         self.assertEqual(self.post("abandon_architect_plan", **values).status_code, 409)
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
 
-    @patch("tasks.agent.start_worker")
+    @patch("tasks.agent_scheduler.wake_scheduler")
     def test_all_proposal_actions_reject_stale_or_tampered_forms(self, worker):
         run, values = self.proposal()
         for action in ("use_architect_plan", "refine_architect_plan", "abandon_architect_plan"):
@@ -241,10 +241,21 @@ class ArchitectWorkflowTests(TestCase):
         self.task.refresh_from_db()
         self.assertEqual((self.task.stage, self.task.status, self.task.plan), (Task.Stage.ARCHITECT, Task.Status.READY, ""))
         self.assertEqual(self.task.runs.count(), 1)
-        worker.assert_called_once_with(run)
+        worker.assert_called_once_with()
 
 
 class ArchitectAcpIntegrationTests(TransactionTestCase):
+    def setUp(self):
+        from ..agent_scheduler import start_scheduler, wake_scheduler
+
+        stop, thread = start_scheduler()
+        def stop_scheduler():
+            stop.set()
+            wake_scheduler()
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+        self.addCleanup(stop_scheduler)
+
     def wait_for_worker(self, run):
         worker = next(
             (thread for thread in threading.enumerate() if thread.name == f"agent-run-{run.pk}"),

@@ -62,6 +62,8 @@ def refine_plan(request, task_id):
             )
         except AcpUnavailable as error:
             return render(request, "tasks/error.html", {"message": str(error)}, status=409)
+        if task.automatic_pause_reason:
+            Task.objects.filter(pk=task.pk).update(automatic_pause_reason="", updated_at=timezone.now())
     from ..automation import _launch
 
     _launch(run)

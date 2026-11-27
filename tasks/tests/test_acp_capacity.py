@@ -4,12 +4,13 @@ import socketserver
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Thread, get_ident
 
-from django.db import IntegrityError, close_old_connections, connection, transaction
+from django.db import IntegrityError, OperationalError, close_old_connections, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 
 from ..acp import AcpUnavailable, create_run, endpoint_status, task_acp_state
 from ..agent import run_agent
+from ..agent_scheduler import claim_next_run
 from ..forms import AcpEndpointForm
 from ..models import AcpEndpoint, AgentRun, Task
 
@@ -22,49 +23,54 @@ class AcpCapacityTests(TestCase):
         values = {}
         if endpoint:
             values = {"acp_selection": Task.AcpSelection.EXPLICIT, "selected_acp_endpoint": endpoint}
-        return Task.objects.create(title="Task", request="Request", **values)
+        return Task.objects.create(title="Task", request="Request", stage=Task.Stage.DEVELOPER, **values)
 
     def start(self, task):
-        return create_run(task, task_version=task.version, request_snapshot="r", plan_snapshot="p")
+        return create_run(task, stage=task.stage, task_version=task.version, request_snapshot="r", plan_snapshot="p")
 
     def test_default_capacity_and_automatic_fallback(self):
         self.assertEqual(self.endpoint.session_limit, 5)
         backup = AcpEndpoint.objects.create(name="Backup", port=12346, priority=2, session_limit=1)
-        runs = [self.start(self.task()) for _ in range(5)]
-        self.assertTrue(all(run.acp_endpoint_id == self.endpoint.pk for run in runs))
-        self.assertEqual(self.start(self.task()).acp_endpoint, backup)
-        with self.assertRaisesMessage(AcpUnavailable, "No enabled ACP is currently available"):
-            self.start(self.task())
-        self.assertTrue(task_acp_state(self.task())["busy"])
+        runs = [self.start(self.task()) for _ in range(7)]
+        self.assertTrue(all(run.acp_endpoint_id is None for run in runs))
+        claimed = [claim_next_run() for _ in range(6)]
+        self.assertTrue(all(run.acp_endpoint_id == self.endpoint.pk for run in claimed[:5]))
+        self.assertEqual(claimed[5].acp_endpoint, backup)
+        self.assertIsNone(claim_next_run())
+        self.assertFalse(task_acp_state(self.task())["busy"])
 
     def test_waiting_and_interrupted_reserve_capacity_until_resolved(self):
         self.endpoint.session_limit = 2
         self.endpoint.save(update_fields=["session_limit"])
         first = self.start(self.task(self.endpoint))
+        self.assertEqual(claim_next_run().pk, first.pk)
         first.status = AgentRun.Status.WAITING_ANSWER
         first.save(update_fields=["status"])
         second = self.start(self.task(self.endpoint))
+        self.assertEqual(claim_next_run().pk, second.pk)
         second.status = AgentRun.Status.INTERRUPTED
         second.save(update_fields=["status"])
         waiting_task = self.task(self.endpoint)
-        self.assertTrue(task_acp_state(waiting_task)["busy"])
+        self.assertFalse(task_acp_state(waiting_task)["busy"])
         self.assertEqual(endpoint_status(self.endpoint, 2), "Busy")
-        with self.assertRaisesMessage(AcpUnavailable, "selected ACP is busy"):
-            self.start(waiting_task)
+        waiting = self.start(waiting_task)
+        self.assertIsNone(claim_next_run())
         first.status = AgentRun.Status.COMPLETED
         first.save(update_fields=["status"])
         self.assertFalse(task_acp_state(waiting_task)["busy"])
-        self.assertEqual(self.start(waiting_task).acp_endpoint, self.endpoint)
+        self.assertEqual(claim_next_run().pk, waiting.pk)
 
     def test_reducing_limit_preserves_runs_and_blocks_new_ones(self):
         runs = [self.start(self.task(self.endpoint)) for _ in range(3)]
+        for run in runs:
+            self.assertEqual(claim_next_run().pk, run.pk)
         self.endpoint.session_limit = 1
         self.endpoint.save(update_fields=["session_limit"])
         waiting = self.task(self.endpoint)
-        with self.assertRaises(AcpUnavailable):
-            self.start(waiting)
+        queued = self.start(waiting)
+        self.assertIsNone(claim_next_run())
         AgentRun.objects.filter(pk__in=[run.pk for run in runs]).update(status=AgentRun.Status.COMPLETED)
-        self.assertEqual(self.start(waiting).acp_endpoint, self.endpoint)
+        self.assertEqual(claim_next_run().pk, queued.pk)
 
     def test_cannot_start_a_second_active_run_for_the_same_task(self):
         task = self.task()
@@ -122,15 +128,18 @@ class AcpCapacityTransactionTests(TransactionTestCase):
             thread.start()
             try:
                 endpoint = AcpEndpoint.objects.create(name="Primary", port=server.server_address[1], session_limit=2)
-                tasks = [Task.objects.create(title=str(index), request="r") for index in range(2)]
+                tasks = [Task.objects.create(title=str(index), request="r", stage=Task.Stage.DEVELOPER) for index in range(2)]
                 runs = [
-                    create_run(task, task_version=0, request_snapshot="r", plan_snapshot="p")
+                    create_run(task, stage=task.stage, task_version=0, request_snapshot="r", plan_snapshot="p")
                     for task in tasks
                 ]
+                runs = [claim_next_run(), claim_next_run()]
 
                 def execute(run):
                     try:
-                        asyncio.run(run_agent(run.pk, "r", "p", endpoint.pk, endpoint.host, endpoint.port))
+                        asyncio.run(run_agent(
+                            run.pk, run.initial_prompt, endpoint.pk, endpoint.host, endpoint.port, run.stage,
+                        ))
                     finally:
                         close_old_connections()
 
@@ -146,7 +155,9 @@ class AcpCapacityTransactionTests(TransactionTestCase):
 
     def test_concurrent_claims_do_not_exceed_capacity(self):
         endpoint = AcpEndpoint.objects.create(name="Primary", port=12345, session_limit=1)
-        tasks = [Task.objects.create(title=str(index), request="r") for index in range(2)]
+        tasks = [Task.objects.create(title=str(index), request="r", stage=Task.Stage.DEVELOPER) for index in range(2)]
+        for task in tasks:
+            create_run(task, stage=task.stage, task_version=0, request_snapshot="r", plan_snapshot="p")
         barrier = Barrier(2)
 
         def claim(task):
@@ -154,8 +165,9 @@ class AcpCapacityTransactionTests(TransactionTestCase):
             try:
                 barrier.wait(timeout=10)
                 try:
-                    return create_run(task, task_version=0, request_snapshot="r", plan_snapshot="p").pk
-                except AcpUnavailable:
+                    run = claim_next_run()
+                    return run.pk if run else None
+                except OperationalError:
                     return None
             finally:
                 close_old_connections()
@@ -163,9 +175,9 @@ class AcpCapacityTransactionTests(TransactionTestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(claim, tasks))
         self.assertLessEqual(sum(result is not None for result in results), 1)
-        self.assertLessEqual(AgentRun.objects.filter(acp_endpoint=endpoint).count(), 1)
+        self.assertLessEqual(AgentRun.objects.filter(acp_endpoint=endpoint, status=AgentRun.Status.RUNNING).count(), 1)
         if not any(results):
-            run = create_run(tasks[0], task_version=0, request_snapshot="r", plan_snapshot="p")
+            run = claim_next_run()
             self.assertEqual(run.acp_endpoint_id, endpoint.pk)
 
     def test_existing_endpoint_and_run_survive_capacity_migration(self):
@@ -184,6 +196,9 @@ class AcpCapacityTransactionTests(TransactionTestCase):
             executor.migrate(latest)
             apps = executor.loader.project_state(latest).apps
             self.assertEqual(apps.get_model("tasks", "AcpEndpoint").objects.get(pk=endpoint.pk).session_limit, 5)
-            self.assertEqual(apps.get_model("tasks", "AgentRun").objects.get(pk=run.pk).acp_endpoint_id, endpoint.pk)
+            migrated = apps.get_model("tasks", "AgentRun").objects.get(pk=run.pk)
+            self.assertEqual(migrated.acp_endpoint_id, endpoint.pk)
+            self.assertEqual(migrated.status, "starting")
+            self.assertIsNone(migrated.initial_prompt)
         finally:
             MigrationExecutor(connection).migrate(latest)

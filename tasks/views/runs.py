@@ -17,6 +17,12 @@ from .activity import format_activity
 from .usage import format_cost_amount
 
 
+def run_redirect(run):
+    if run.task_id is None:
+        return redirect("project_run_detail", run_id=run.pk)
+    return redirect("task_detail", task_id=run.task_id)
+
+
 @require_GET
 def run_activity(request, task_id, run_id):
     run = get_object_or_404(
@@ -42,9 +48,18 @@ def run_activity(request, task_id, run_id):
 @require_POST
 def cancel_run(request, run_id):
     run = get_object_or_404(AgentRun, pk=run_id)
-    if not AgentRun.objects.filter(pk=run_id, status__in=AgentRun.ACTIVE).update(cancel_requested=True):
-        return render(request, "tasks/error.html", {"message": "This run is no longer active."}, status=409)
-    return redirect("task_detail", task_id=run.task_id)
+    with transaction.atomic():
+        cancelled = AgentRun.objects.filter(pk=run_id, status=AgentRun.Status.PENDING).update(
+            status=AgentRun.Status.CANCELLED, cancel_requested=True, finished_at=timezone.now(),
+        )
+        if cancelled:
+            Task.objects.filter(pk=run.task_id, automatic_pause_reason="").update(
+                automatic_pause_reason="The pending run was cancelled.", updated_at=timezone.now(),
+            )
+            RunEvent.objects.create(run_id=run_id, kind="status", content="Pending run cancelled before dispatch.")
+        elif not AgentRun.objects.filter(pk=run_id, status__in=AgentRun.EXECUTING).update(cancel_requested=True):
+            return render(request, "tasks/error.html", {"message": "This run is no longer active."}, status=409)
+    return run_redirect(run)
 
 @require_POST
 def acknowledge_run(request, run_id):
@@ -57,7 +72,7 @@ def acknowledge_run(request, run_id):
         automatic_pause_reason="An interrupted run was acknowledged. Review it before continuing the workflow.",
         updated_at=timezone.now(),
     )
-    return redirect("task_detail", task_id=run.task_id)
+    return run_redirect(run)
 
 
 @require_POST
@@ -67,6 +82,12 @@ def answer_agent_question(request, question_id):
         return render(request, "tasks/error.html", {"message": "This question is no longer available."}, status=409)
     form = QuestionForm(question.schema, request.POST, prefix="answer")
     if not form.is_valid():
+        if question.run.task_id is None:
+            from .project_runs import project_run_detail
+
+            return project_run_detail(
+                request, question.run_id, question_form=form, question_form_question_id=question.pk, status=400,
+            )
         from .detail import task_detail
 
         response = task_detail(request, question.run.task_id, question_form=form, question_form_question_id=question.pk)
@@ -77,7 +98,7 @@ def answer_agent_question(request, question_id):
     except (ValueError, RuntimeError, ValidationError) as error:
         return render(request, "tasks/error.html", {"message": str(error)}, status=409)
     messages.success(request, "Answer recorded. The agent will receive it if the session remains active.")
-    return redirect("task_detail", task_id=question.run.task_id)
+    return run_redirect(question.run)
 
 
 @require_POST
@@ -177,4 +198,4 @@ def resolve_permission(request, permission_id):
     elif mcp_rule:
         target = f"{mcp_rule['server']}-{mcp_rule['tool']}" if mcp_rule["tool"] else f"all tools on {mcp_rule['server']}"
         messages.success(request, f"Allowed this request once and enabled automatic approval for {target}.")
-    return redirect("task_detail", task_id=permission.run.task_id)
+    return run_redirect(permission.run)

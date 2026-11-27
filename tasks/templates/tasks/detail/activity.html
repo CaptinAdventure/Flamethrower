@@ -1,7 +1,7 @@
 {% load markdown_rendering tz %}
 <section class="card run-{{ run.status }}" id="run-activity">
     <h2>
-        {{ run.get_stage_display }} Copilot run #{{ run.id }}
+        {{ run.get_stage_display }} {% if run.stage == "project" %}ACP{% else %}Copilot{% endif %} run #{{ run.id }}
         <span class="card-extra">{{ run.get_status_display }}</span>
     </h2>
 
@@ -38,13 +38,23 @@
     {% endif %}
 
     <details>
-        <summary>Inputs used for this run</summary>
+        <summary>Prepared initial prompt</summary>
+        {% if run.initial_prompt != None %}
+            <pre class="content">{{ run.initial_prompt }}</pre>
+        {% else %}
+            <p>Not recorded for this run.</p>
+        {% endif %}
+    </details>
 
+    <details>
+        <summary>Inputs used for this run</summary>
         <h3>Request</h3>
         <div class="content">{{ run.request_snapshot }}</div>
 
-        <h3>Plan</h3>
-        {% include "tasks/components/plan.html" with plan_text=run.plan_snapshot only %}
+        {% if run.stage != "project" %}
+            <h3>Plan</h3>
+            {% include "tasks/components/plan.html" with plan_text=run.plan_snapshot only %}
+        {% endif %}
 
         {% if run.context_snapshot %}
             <h3>Recorded context</h3>

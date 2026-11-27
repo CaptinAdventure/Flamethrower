@@ -10,6 +10,10 @@ _ARCHITECT_BLOCK = re.compile(
     r"(?:\A|\n)FLAMETHROWER_ARCHITECT_PLAN\r?\n(.*?)\r?\nEND_FLAMETHROWER_ARCHITECT_PLAN\s*\Z",
     re.DOTALL,
 )
+_PROJECT_BLOCK = re.compile(
+    r"(?:\A|\n)FLAMETHROWER_PROJECT_ANSWER\r?\n(.*?)\r?\nEND_FLAMETHROWER_PROJECT_ANSWER\s*\Z",
+    re.DOTALL,
+)
 _QUESTION_BLOCK = re.compile(
     r"(?:\A|\n)FLAMETHROWER_QUESTION\r?\n(.*?)\r?\nEND_FLAMETHROWER_QUESTION\s*\Z",
     re.DOTALL,
@@ -43,6 +47,13 @@ def architect_plan(text):
     if (
         not match or not unique_marker_lines(text, "FLAMETHROWER_ARCHITECT_PLAN", "END_FLAMETHROWER_ARCHITECT_PLAN")
     ):
+        return ""
+    return match.group(1).strip()
+
+
+def project_answer(text):
+    match = _PROJECT_BLOCK.search(text)
+    if not match or not unique_marker_lines(text, "FLAMETHROWER_PROJECT_ANSWER", "END_FLAMETHROWER_PROJECT_ANSWER"):
         return ""
     return match.group(1).strip()
 

@@ -42,8 +42,8 @@ ACP form questions and explicitly marked questions appear on the task page; the
 answer is sent to the same live session. An ambiguous response without a
 recognized completion signal also waits for review instead of advancing. An
 answer does not approve changes to the request, plan, or tool permissions.
-If the application stops while waiting, the run is interrupted and must be
-reviewed rather than silently resumed. ACP form elicitation is an unstable
+If the application stops while waiting, the original question is cancelled and
+the interrupted run requires review. ACP form elicitation is an unstable
 protocol feature and depends on the agent supporting it.
 
 On **ACPs**, automatic read/search approvals are off by default. Enable them
@@ -249,12 +249,49 @@ editing files or running project commands. These instructions are **not
 enforced**: the trusted ACP server may run commands, modify files, or use saved
 permissions without prompting. Read-only isolation is **NOT_YET_VERIFIED**.
 Agent proposals are not verified and require explicit human acceptance and plan
-approval. Interrupted runs require inspection and acknowledgement.
+approval. Interrupted runs require inspection and acknowledgement. New runs
+retain their complete prepared initial prompt in run activity; older runs may
+not have one recorded.
+
+Runs are queued as Pending and dispatched by the `flamethrower` launcher when
+an ACP has capacity. Automatically selected ACPs are chosen at dispatch;
+explicit selections wait for that ACP. Disabled ACPs and ACPs with a recorded
+connection error are skipped until enabled or successfully checked. Pending runs survive launcher restarts.
+New ACP sessions are named `[<task id>:<phase>] <Task title>` when the agent
+advertises title support; run activity records the stored title or failure.
+On restart, dispatched runs are marked interrupted. The launcher checks
+eligible sessions in the background and reattaches only if the agent advertises
+status and resume support and reports the session as saved. The agent receives
+no prompt until a human inspects the run and provides direction. An open,
+unknown, unsupported, or failed session remains interrupted. Sessions without
+a recorded original address, with a changed endpoint or task, or with an
+unresolved permission are not automatically reattached. Interrupted turns
+remain unverified. These ACP extensions depend on agent support and may change.
+The queue is not processed by `manage.py runserver`.
+
+Use **Ask about the project** on the task board for a standalone ACP inquiry.
+Its prompt includes non-completed, non-abandoned tasks; the agent can query task
+details and links without MCP and can ask human questions using the usual run
+controls. Proposed links are recorded for individual human approval or rejection;
+they are not created by the task-block protocol until approved. Project inquiries
+share ACP capacity, permission handling, history, and interrupted-run recovery
+with task runs, but do not advance a task workflow. The agent is instructed not
+to modify files or directly change tasks; this is not enforced isolation, and
+configured ACP/MCP permissions may allow modifications.
+
+Architects receive unfinished task summaries, existing links and relationship
+descriptions. They can query other task details with a `FLAMETHROWER_TASKQUERY`
+block or create links with a `FLAMETHROWER_TASKLINK` block, without MCP. Link
+descriptions are from the current task's perspective; for example, "is blocked
+by" means the other task blocks this one. Links are saved immediately and
+audited, even if the run is interrupted or its plan is rejected. Review them
+alongside the Architect's proposal. Links record relationships but do not
+automatically enforce execution order.
 
 The ACP server determines its own tools and saved permissions. The app does not
 sandbox the agent or technically enforce the plan; some operations may not
-prompt. Trust the server and review changes before proceeding. Only one run
-per ACP endpoint is allowed at a time. If a run is interrupted, inspect the server
+prompt. Trust the server and review changes before proceeding. Each ACP endpoint
+has a configurable session limit. If a run is interrupted, inspect the server
 and project before acknowledging it; work may have continued after disconnect.
 An agent turn ending is not independent verification. Run activity and
 permissions can contain sensitive data in the local database.

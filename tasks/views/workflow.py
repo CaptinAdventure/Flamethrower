@@ -228,9 +228,9 @@ def start_run(request, task_id):
             return render(request, "tasks/error.html", {"message": str(error)}, status=409)
         if task.automatic_pause_reason:
             Task.objects.filter(pk=task.pk).update(automatic_pause_reason="")
-    from ..agent import start_worker
+    from ..agent_scheduler import wake_scheduler
     try:
-        start_worker(run)
+        wake_scheduler()
     except RuntimeError as error:
         run.status = AgentRun.Status.INTERRUPTED
         run.error = f"Could not start worker: {error}"

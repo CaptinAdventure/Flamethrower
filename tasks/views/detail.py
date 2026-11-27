@@ -66,17 +66,7 @@ def suggestion_rows(task):
     return rows
 
 
-def task_detail(request, task_id, gate_form=None, rework_form=None, architect_refinement_form=None, question_form=None, question_form_question_id=None):
-    task = get_object_or_404(Task, pk=task_id)
-    runs = task.runs.select_related("acp_endpoint")
-    current_run = runs.first()
-    selected_run = request.GET.get("run") if request.method == "GET" else None
-    if selected_run is not None:
-        try:
-            run = get_object_or_404(runs, pk=int(selected_run))
-        except ValueError:
-            raise Http404
-        return redirect("run_activity", task_id=task.pk, run_id=run.pk)
+def run_attention_context(current_run, question_form=None, question_form_question_id=None):
     permission = None
     question = None
     directory_approval_option = None
@@ -107,6 +97,32 @@ def task_detail(request, task_id, gate_form=None, rework_form=None, architect_re
                 if commands:
                     command_approval_commands = [" ".join(command) for command in commands]
                 mcp_approval_tool = reported_mcp_tool(permission.tool_call)
+    return {
+        "permission": permission,
+        "question": question if current_run and not current_run.cancel_requested else None,
+        "question_form": question_form,
+        "mcp_approval_tool": mcp_approval_tool,
+        "mcp_kind_mismatch": reported_mcp_kind_mismatch(permission.tool_call) if mcp_approval_tool else None,
+        "directory_approval_option": directory_approval_option,
+        "directory_approval_paths": directory_approval_paths,
+        "directory_approval_enabled": directory_approval_enabled,
+        "command_approval_commands": command_approval_commands,
+        "permission_summary": tool_call_summary(permission.tool_call) if permission else None,
+        "permission_details": json.dumps(permission.tool_call, indent=2, ensure_ascii=False) if permission else "",
+    }
+
+
+def task_detail(request, task_id, gate_form=None, rework_form=None, architect_refinement_form=None, question_form=None, question_form_question_id=None):
+    task = get_object_or_404(Task, pk=task_id)
+    runs = task.runs.select_related("acp_endpoint")
+    current_run = runs.first()
+    selected_run = request.GET.get("run") if request.method == "GET" else None
+    if selected_run is not None:
+        try:
+            run = get_object_or_404(runs, pk=int(selected_run))
+        except ValueError:
+            raise Http404
+        return redirect("run_activity", task_id=task.pk, run_id=run.pk)
     acp_state = task_acp_state(task)
     blocking_run = acp_state["blocking_run"]
     stage_initial = {"version": task.version, "stage_version": task.stage_version}
@@ -246,16 +262,6 @@ def task_detail(request, task_id, gate_form=None, rework_form=None, architect_re
         "work_type_suggestion": work_type_suggestion(task),
         "developer_ready": developer_ready,
         "runs": runs,
-        "permission": permission,
-        "question": question if current_run and not current_run.cancel_requested else None,
-        "question_form": question_form,
-        "mcp_approval_tool": mcp_approval_tool,
-        "mcp_kind_mismatch": reported_mcp_kind_mismatch(permission.tool_call) if mcp_approval_tool else None,
-        "directory_approval_option": directory_approval_option,
-        "directory_approval_paths": directory_approval_paths,
-        "directory_approval_enabled": directory_approval_enabled,
-        "command_approval_commands": command_approval_commands,
-        "permission_summary": tool_call_summary(permission.tool_call) if permission else None,
-        "permission_details": json.dumps(permission.tool_call, indent=2, ensure_ascii=False) if permission else "",
+        **run_attention_context(current_run, question_form, question_form_question_id),
         **acp_state,
     })
